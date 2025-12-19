@@ -2,7 +2,7 @@ from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os
+import uvicorn, json, os, requests
 
 # 🔐 Настройки горячего кошелька
 HOT_WALLET_ADDRESS = "UQDpW4gtsT9Y77oze2el7fpJ-9OFPtvgSLmZZ6a57gOgL4vZ"
@@ -58,7 +58,24 @@ async def earn(wallet: str, score: int):
         json.dump(db, f)
     return user
 
-# Обмен токенов на Ubuntu с горячего кошелька
+# Функция отправки Ubuntu через горячий кошелек
+def send_ubuntu(from_address, key, to_address, amount):
+    url = "https://toncenter.com/api/v2/sendTransaction"
+    payload = {
+        "from": from_address,
+        "to": to_address,
+        "value": str(amount),  # уточнить единицы токена
+        "secret": key
+    }
+    headers = {"Content-Type": "application/json"}
+    response = requests.post(url, json=payload, headers=headers)
+    res = response.json()
+    if res.get("ok"):
+        return True
+    else:
+        raise Exception(f"Ошибка перевода: {res.get('error', res)}")
+
+# Обмен токенов на Ubuntu
 @app.post("/exchange")
 async def exchange(request: Request):
     data = await request.json()
@@ -81,15 +98,19 @@ async def exchange(request: Request):
     send_amount = (tokens // MIN_EXCHANGE) * MIN_EXCHANGE
     user["tokens"] -= send_amount
     db["users"][wallet] = user
-
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    # -------------------------------
-    # 🔑 Здесь пример интеграции горячего кошелька
-    # В реальном проекте нужно использовать библиотеку для подписания и отправки транзакции
-    # send_ubuntu(HOT_WALLET_ADDRESS, HOT_WALLET_KEY, wallet, send_amount)
-    # -------------------------------
+    # 🔑 Попытка отправки с горячего кошелька
+    try:
+        send_ubuntu(HOT_WALLET_ADDRESS, HOT_WALLET_KEY, wallet, send_amount)
+    except Exception as e:
+        # При ошибке откатываем токены
+        user["tokens"] += send_amount
+        db["users"][wallet] = user
+        with open(DB_PATH, "w") as f:
+            json.dump(db, f)
+        return JSONResponse({"error": str(e)}, status_code=500)
 
     return {"sent": send_amount, "tokens": user["tokens"]}
 
