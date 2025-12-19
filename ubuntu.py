@@ -98,7 +98,7 @@ canvas{display:block;width:100vw;height:100vh;}
 #exchangeBtn{position:absolute;top:60px;left:50%;transform:translateX(-50%);padding:10px 20px;font-size:18px;z-index:10;}
 </style>
 </head><body>
-<div id="ui">UBUNTU: <span id="t">0</span> | РЕКОРД: <span id="b">0</span></div>
+<div id="ui">UBUNTU: <span id="t">0</span></div>
 <button id="exchangeBtn">Обменять очки на Ubuntu</button>
 <canvas id="c"></canvas>
 <script>
@@ -111,7 +111,6 @@ window.onresize=res; res();
 
 let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
 let pipes=[]; let frame=0; let dead=false;
-let highlightFrames = 0;
 let lastRecordScore = 0;
 
 const bI=new Image(); bI.src='/static/bird.png';
@@ -133,21 +132,19 @@ function draw(){
     pipes.forEach((p,i)=>{
         if(!dead) p.x-=4.5;
 
-        // Подсветка рекордного столбика
+        // Рисуем столбики
         if(p.highlight){
             ctx.fillStyle = "yellow";
-            ctx.fillRect(p.x, 0, 80, p.t);
-            ctx.fillRect(p.x, p.t+190, 80, cvs.height);
-        } else if(pI.complete && pI.width>0){
-            ctx.drawImage(pI,p.x,0,80,p.t);
-            ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
         } else {
-            ctx.fillStyle="green"; ctx.fillRect(p.x,0,80,p.t);
-            ctx.fillRect(p.x,p.t+190,80,cvs.height);
+            ctx.fillStyle = "green";
         }
+        ctx.fillRect(p.x,0,80,p.t);
+        ctx.fillRect(p.x,p.t+190,80,cvs.height);
 
+        // Проверка на столкновение
         if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
 
+        // Когда птица пролетает столбик
         if(!dead && !p.p && p.x<bird.x){
             p.p=true; bird.score++;
 
@@ -155,28 +152,23 @@ function draw(){
             if(wallet){
                 fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
                     document.getElementById('t').innerText=data.tokens;
-                    document.getElementById('b').innerText=data.best;
 
-                    // Если побили прошлый рекорд, подсветить соответствующий столбик
-                    if(bird.score > lastRecordScore){
-                        highlightFrames = 60;
-                        // находим столик соответствующий прошлому рекорду
-                        if(pipes[i - (bird.score - lastRecordScore - 1)]){
-                            pipes[i - (bird.score - lastRecordScore - 1)].highlight = true;
+                    // Подсветка прошлых рекордных столбиков
+                    if(data.best > lastRecordScore){
+                        // Подсветим столбики, которые соответствуют прошлому рекорду
+                        for(let j=0; j<lastRecordScore; j++){
+                            if(pipes[j]) pipes[j].highlight = true;
                         }
+                        lastRecordScore = data.best;
                     }
-                    lastRecordScore = data.best;
                 });
             }
         }
     });
 
-    // Эффект подсветки для рекордного столбика
-    if(highlightFrames > 0){
-        highlightFrames--;
+    if(bird.y>cvs.height+50){ 
+        bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; 
     }
-
-    if(bird.y>cvs.height+50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; lastRecordScore=0; }
     requestAnimationFrame(draw);
 }
 
