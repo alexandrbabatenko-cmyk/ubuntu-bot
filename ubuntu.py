@@ -72,26 +72,25 @@ async def exchange(request: Request):
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    # Реальная отправка через TON API можно добавить здесь
+    # Здесь можно добавить реальную отправку через TON API
     return {"sent": amount, "tokens": 0}
 
-# Игровая страница (HTML/JS)
+# Игровая страница
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
-<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
+<!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <script src="telegram.org"></script>
 <style>
 body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
-#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:20px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
+#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
 canvas{display:block;width:100vw;height:100vh;}
-#exchangeBtn{position:absolute;top:50px;left:50%;transform:translateX(-50%);padding:6px 12px;font-size:16px;z-index:10;}
+#exchangeBtn{position:absolute;top:60px;left:50%;transform:translateX(-50%);padding:10px 20px;font-size:18px;z-index:10;}
 </style>
 </head><body>
-<div id="ui">UBUNTU: <span id="t">0</span> | РЕКОРД: <span id="b">0</span></div>
-<button id="exchangeBtn">Обменять Ubuntu</button>
+<div id="ui"><span id="t">0</span> Ubuntu</div>
+<button id="exchangeBtn">Обменять очки на Ubuntu</button>
 <canvas id="c"></canvas>
 <script>
 const tg = window.Telegram ? window.Telegram.WebApp : null;
@@ -101,7 +100,7 @@ const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
 function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
 window.onresize=res; res();
 
-let bird={x:80, y:200, w:50, h:50, v:0, g:0.35, score:0};
+let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
 let pipes=[]; let frame=0; let dead=false;
 
 const bI=new Image(); bI.src='/static/bird.png';
@@ -109,51 +108,60 @@ const pI=new Image(); pI.src='/static/pipe.png';
 const bg=new Image(); bg.src='/static/background.png';
 
 function draw(){
-    ctx.fillStyle="#4ec0ca"; ctx.fillRect(0,0,cvs.width,cvs.height);
-    if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
+    ctx.fillStyle = "#4ec0ca";
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+    if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
 
+    // физика птицы чуть плавнее
     bird.v += bird.g;
     bird.y += bird.v;
-    ctx.save(); ctx.translate(bird.x,bird.y);
-    if(bI.complete && bI.width>0) ctx.drawImage(bI,-bird.w/2,-bird.h/2,bird.w,bird.h);
-    else {ctx.fillStyle="yellow"; ctx.fillRect(-bird.w/2,-bird.h/2,bird.w,bird.h);}
+    bird.v *= 0.98; // лёгкое затухание
+
+    ctx.save(); ctx.translate(bird.x, bird.y);
+    if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
+    else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
     ctx.restore();
 
     if(!dead) frame++;
-    if(!dead && frame%100===0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
+    if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
 
-    pipes.forEach((p)=>{
+    pipes.forEach((p,i)=>{
         if(!dead) p.x -= 4.5;
-        if(pI.complete && pI.width>0){
-            // Верхняя труба перевернута
-            ctx.save(); ctx.translate(p.x, p.t); ctx.scale(1,-1);
-            ctx.drawImage(pI,0,0,80,p.t); ctx.restore();
-            ctx.drawImage(pI, p.x, p.t+190, 80, cvs.height-p.t-190);
+        if(pI.complete && pI.width > 0){
+            // верхняя труба перевёрнута
+            ctx.save();
+            ctx.translate(p.x + 40, p.t);
+            ctx.scale(1, -1);
+            ctx.drawImage(pI, -40, 0, 80, p.t);
+            ctx.restore();
+
+            // нижняя труба
+            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
         } else {
-            ctx.fillStyle="green"; ctx.fillRect(p.x,0,80,p.t);
-            ctx.fillRect(p.x,p.t+190,80,cvs.height-p.t-190);
+            ctx.fillStyle = "green";
+            ctx.fillRect(p.x, 0, 80, p.t);
+            ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
         }
 
-        if(!dead && bird.x+bird.w/2>p.x && bird.x-bird.w/2<p.x+80 && (bird.y-bird.h/2<p.t || bird.y+bird.h/2>p.t+190)) dead=true;
+        if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
 
-        if(!dead && !p.p && p.x<bird.x){
-            p.p=true; bird.score++;
+        if(!dead && !p.p && p.x < bird.x){
+            p.p = true; bird.score++;
             const wallet = localStorage.getItem('wallet');
             if(wallet){
                 fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
                     document.getElementById('t').innerText=data.tokens;
-                    document.getElementById('b').innerText=data.best;
                 });
             }
         }
     });
 
-    if(bird.y>cvs.height+50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
+    if(bird.y > cvs.height + 50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
     requestAnimationFrame(draw);
 }
 
-window.onmousedown=()=>{ if(!dead) bird.v=-7; };
-window.ontouchstart=()=>{ if(!dead) bird.v=-7; };
+window.onmousedown = () => { if(!dead) bird.v=-8; };
+window.ontouchstart = () => { if(!dead) bird.v=-8; };
 draw();
 
 document.getElementById('exchangeBtn').onclick = async () => {
@@ -180,5 +188,5 @@ document.getElementById('exchangeBtn').onclick = async () => {
 """
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000"))
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
