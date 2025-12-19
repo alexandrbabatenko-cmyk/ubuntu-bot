@@ -2,7 +2,7 @@ from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os
+import uvicorn, json, os, time
 
 app = FastAPI()
 
@@ -13,7 +13,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MIN_EXCHANGE = 10000  # 🔐 минимальный порог вывода
+MIN_EXCHANGE = 10000  # минимальный порог вывода
 
 # Пути
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,7 +33,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 async def favicon():
     return Response(status_code=204)
 
-# 🪙 Начисление токенов — ТОЛЬКО если есть кошелёк
+# Начисление токенов
 @app.post("/earn/{wallet}/{score}")
 async def earn(wallet: str, score: int):
     if not wallet:
@@ -55,7 +55,7 @@ async def earn(wallet: str, score: int):
 
     return user
 
-# 🔄 Обмен токенов
+# Обмен токенов
 @app.post("/exchange")
 async def exchange(request: Request):
     data = await request.json()
@@ -83,13 +83,12 @@ async def exchange(request: Request):
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    # ⚠️ Здесь позже подключишь реальный перевод из горячего кошелька
     return {
         "sent": send_amount,
         "tokens": user["tokens"]
     }
 
-# 🎮 Игра
+# Игровая страница
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -100,7 +99,7 @@ async def index():
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
-#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;font-weight:bold;}
+#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;font-weight:bold;display:flex;justify-content:center;align-items:center;gap:15px;}
 button{padding:6px 12px;font-size:16px;}
 canvas{display:block;}
 </style>
@@ -115,73 +114,107 @@ canvas{display:block;}
 <script>
 const cvs = document.getElementById('c');
 const ctx = cvs.getContext('2d');
-cvs.width = innerWidth;
-cvs.height = innerHeight;
 
-let bird={x:80,y:200,v:0,g:0.5};
-let pipes=[];
-let score=0;
+// Фоновая картинка
+const bg = new Image();
+bg.src = '/static/background.png';
 
+// Настройка canvas
+function resizeCanvas(){
+    cvs.width = window.innerWidth;
+    cvs.height = window.innerHeight;
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+// Параметры пола
+const floorHeight = 100;
+
+// Птица
+let bird = {x:80, y:200, w:40, h:40, v:0, g:0.5};
+let pipes = [];
+let score = 0;
+const pipeGap = 180;
+
+// Генерация трубы
+function addPipe(){
+    const maxHeight = cvs.height - pipeGap - floorHeight - 50;
+    const height = Math.random() * (maxHeight - 50) + 50;
+    pipes.push({x:cvs.width, t:height, passed:false});
+}
+
+// Главная функция отрисовки
 function draw(){
-    ctx.fillStyle="#4ec0ca";
-    ctx.fillRect(0,0,cvs.width,cvs.height);
+    // фон
+    if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
+    else { ctx.fillStyle="#4ec0ca"; ctx.fillRect(0,0,cvs.width,cvs.height); }
 
-    bird.v+=bird.g;
-    bird.y+=bird.v;
+    // пол
+    ctx.fillStyle = "#654321";
+    ctx.fillRect(0, cvs.height - floorHeight, cvs.width, floorHeight);
 
-    ctx.fillStyle="yellow";
-    ctx.fillRect(bird.x,bird.y,40,40);
+    // физика птицы
+    bird.v += bird.g;
+    bird.y += bird.v;
+    if(bird.y + bird.h > cvs.height - floorHeight){ bird.y = cvs.height - floorHeight - bird.h; bird.v = 0; }
 
+    // птица
+    ctx.fillStyle = "yellow";
+    ctx.fillRect(bird.x, bird.y, bird.w, bird.h);
+
+    // трубы
     pipes.forEach(p=>{
-        p.x-=4;
-        ctx.fillStyle="green";
-        ctx.fillRect(p.x,0,80,p.t);
-        ctx.fillRect(p.x,p.t+180,80,cvs.height);
+        p.x -= 4;
+        ctx.fillStyle = "green";
+        ctx.fillRect(p.x, 0, 80, p.t);
+        ctx.fillRect(p.x, p.t + pipeGap, 80, cvs.height - floorHeight - (p.t + pipeGap));
 
-        if(p.x<bird.x && !p.passed){
-            p.passed=true;
+        // начисление очков
+        if(!p.passed && p.x + 80 < bird.x){
+            p.passed = true;
             score++;
-
             const wallet = localStorage.getItem("wallet");
             if(wallet){
-                fetch(`/earn/${wallet}/${score}`,{method:"POST"})
+                fetch(`/earn/${wallet}/${score}`, {method:"POST"})
                 .then(r=>r.json())
                 .then(d=>document.getElementById("t").innerText=d.tokens);
             }
         }
     });
 
-    if(Math.random()<0.01){
-        pipes.push({x:cvs.width,t:Math.random()*300+50});
-    }
+    // генерация новой трубы
+    if(Math.random()<0.01){ addPipe(); }
 
     requestAnimationFrame(draw);
 }
 draw();
 
-onclick=()=>bird.v=-8;
+// прыжок
+onclick = () => { bird.v = -8; };
+ontouchstart = () => { bird.v = -8; };
 
-document.getElementById("exchangeBtn").onclick=async()=>{
+// обмен токенов
+document.getElementById("exchangeBtn").onclick = async () => {
     let wallet = localStorage.getItem("wallet");
     if(!wallet){
-        wallet = prompt("Введите кошелёк:");
+        wallet = prompt("Введите кошелек:");
         if(!wallet) return;
-        localStorage.setItem("wallet",wallet);
-        alert("Кошелёк сохранён. Теперь очки будут начисляться.");
+        localStorage.setItem("wallet", wallet);
+        alert("Кошелек сохранён. Теперь очки будут начисляться.");
         return;
     }
 
     const r = await fetch("/exchange",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({wallet})
+        body: JSON.stringify({wallet})
     });
-
     const d = await r.json();
+
     if(d.error) alert(d.error);
     else{
         alert("Отправлено "+d.sent+" UBUNTU");
-        document.getElementById("t").innerText=d.tokens;
+        document.getElementById("t").innerText = d.tokens;
     }
 }
 </script>
@@ -190,5 +223,4 @@ document.getElementById("exchangeBtn").onclick=async()=>{
 """
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
