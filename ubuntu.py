@@ -2,7 +2,7 @@ from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os
+import uvicorn, json, os, math, time
 
 app = FastAPI()
 
@@ -74,7 +74,7 @@ async def exchange(request: Request):
 
     return {"sent": amount, "tokens": 0}
 
-# Игровая страница
+# Игровая страница с продвинутой физикой
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -98,7 +98,7 @@ const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
 function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
 window.onresize=res; res();
 
-let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0, angle:0};
+let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0, angle:0, wingPhase:0};
 let pipes=[]; let frame=0; let dead=false;
 
 const bI=new Image(); bI.src='/static/bird.png';
@@ -110,15 +110,21 @@ function draw(){
     ctx.fillRect(0, 0, cvs.width, cvs.height);
     if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
 
-    // физика птицы с наклоном
+    // Физика птицы
     bird.v += bird.g;
     bird.y += bird.v;
-    bird.angle = Math.max(Math.min(bird.v * 6, 45), -30); // наклон
     bird.v *= 0.98;
+
+    // наклон головы по скорости
+    bird.angle += (bird.v * 6 - bird.angle) * 0.1;
+
+    // колебания крыльев
+    bird.wingPhase += 0.2;
+    let wingOffset = Math.sin(bird.wingPhase) * 5; // лёгкие колебания +/-5°
 
     ctx.save(); 
     ctx.translate(bird.x, bird.y);
-    ctx.rotate(bird.angle * Math.PI / 180);
+    ctx.rotate((bird.angle + wingOffset) * Math.PI / 180);
     if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
     else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
     ctx.restore();
@@ -157,7 +163,7 @@ function draw(){
         }
     });
 
-    if(bird.y > cvs.height + 50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
+    if(bird.y > cvs.height + 50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; bird.wingPhase=0; }
     requestAnimationFrame(draw);
 }
 
@@ -191,4 +197,3 @@ document.getElementById('exchangeBtn').onclick = async () => {
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
