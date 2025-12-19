@@ -2,45 +2,59 @@ from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os, logging
+from TonTools import Wallet, TonCenterClient
+import uvicorn, json, os, logging, asyncio
 
 app = FastAPI()
 
-# Логирование для отслеживания заявок на вывод (смотрите в консоли Render)
+# --- БЛОК НАСТРОЕК TON ---
+TON_API_KEY = "6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13" 
+
+# ВНИМАНИЕ: Эти 24 слова теперь публичны. Используйте их только для тестов.
+MNEMONICS = ["ribbon", "galaxy", "lens", "series", "budget", "cover", "permit", "exit", "carpet", "crisp", "tomato", "room", "portion", "spoil", "six", "key", "obvious", "river", "worry", "sword", "party", "grass", "join", "spoil"]
+
+UBUNTU_MASTER_ADDRESS = "EQA25M3v5zYC6-f8uyjFf1QPaZaNSS7WOJggo14DWsYiXmZc"
+# -------------------------
+
 logging.basicConfig(level=logging.INFO)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-if not os.path.exists(STATIC_DIR):
-    os.makedirs(STATIC_DIR)
-
+if not os.path.exists(STATIC_DIR): os.makedirs(STATIC_DIR)
 if not os.path.exists(DB_PATH):
     with open(DB_PATH, "w") as f: json.dump({}, f)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+async def send_ubuntu_tokens(destination_wallet, amount):
+    try:
+        # ИСПРАВЛЕНО: Добавлен https и api/v2
+        client = TonCenterClient(base_url='toncenter.com', api_key=TON_API_KEY)
+        
+        wallet = Wallet(provider=client, mnemonics=MNEMONICS, version='v4r2')
+        
+        tx = await wallet.transfer_jetton(
+            destination_address=destination_wallet,
+            jetton_master_address=UBUNTU_MASTER_ADDRESS,
+            jettons_amount=amount 
+        )
+        return True, tx
+    except Exception as e:
+        logging.error(f"TON ERROR: {e}")
+        return False, str(e)
 
 @app.post("/earn/{score}")
 async def earn(score: int, user_id: str = "guest"):
     try:
         with open(DB_PATH, "r") as f: db = json.load(f)
     except: db = {}
-    
-    if user_id not in db:
-        db[user_id] = {"tokens": 0, "best": 0}
-    
+    if user_id not in db: db[user_id] = {"tokens": 0, "best": 0}
     db[user_id]["tokens"] += 1
-    if score > db[user_id]["best"]:
-        db[user_id]["best"] = score
-        
+    if score > db[user_id]["best"]: db[user_id]["best"] = score
     with open(DB_PATH, "w") as f: json.dump(db, f)
     return {"tokens": db[user_id]["tokens"], "best": db[user_id]["best"]}
 
@@ -48,19 +62,17 @@ async def earn(score: int, user_id: str = "guest"):
 async def withdraw(request: Request):
     data = await request.json()
     user_id = str(data.get("user_id"))
-    wallet = data.get("wallet")
+    wallet_addr = data.get("wallet")
     amount = int(data.get("amount"))
-
     with open(DB_PATH, "r") as f: db = json.load(f)
-
     if user_id in db and db[user_id]["tokens"] >= amount:
-        db[user_id]["tokens"] -= amount  # Списываем очки
-        with open(DB_PATH, "w") as f: json.dump(db, f)
-        
-        # ВЫ УВИДИТЕ ЭТУ СТРОКУ В ЛОГАХ RENDER
-        logging.info(f"!!! НОВАЯ ЗАЯВКА: Юзер {user_id} ждет {amount} токенов на кошелек {wallet}")
-        return {"status": "ok", "message": f"Заявка принята! {amount} токенов отправят на {wallet}"}
-    
+        success, result = await send_ubuntu_tokens(wallet_addr, amount)
+        if success:
+            db[user_id]["tokens"] -= amount
+            with open(DB_PATH, "w") as f: json.dump(db, f)
+            return {"status": "ok", "message": f"Успешно! {amount} UBUNTU отправлены."}
+        else:
+            return {"status": "error", "message": f"Ошибка транзакции: {result}"}
     return {"status": "error", "message": "Недостаточно очков!"}
 
 @app.get("/", response_class=HTMLResponse)
@@ -68,6 +80,7 @@ async def index():
     return """
     <!DOCTYPE html><html><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <!-- ИСПРАВЛЕНО: Рабочий скрипт Telegram -->
     <script src="telegram.org"></script>
     <style>
         body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
@@ -82,22 +95,17 @@ async def index():
         const tg = window.Telegram.WebApp;
         tg.expand();
         const user_id = tg.initDataUnsafe?.user?.id || "guest";
-
         const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
         function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
         window.onresize=res; res();
-
         let bird={x:80, y:200, v:0, g:0.45, score:0};
         let pipes=[]; let frame=0; let dead=false; 
-
         const bI=new Image(); bI.src='/static/bird.png';
         const pI=new Image(); pI.src='/static/pipe.png';
         const bg=new Image(); bg.src='/static/background.png';
-
         document.getElementById('wBtn').onclick = () => {
             const currentScore = parseInt(document.getElementById('t').innerText);
             if(currentScore < 100) return tg.showAlert("Минимум 100 очков!");
-            
             const wallet = prompt("Введите ваш адрес TON кошелька:");
             if(wallet && wallet.length > 10) {
                 fetch('/withdraw', {
@@ -112,20 +120,16 @@ async def index():
                 });
             }
         };
-
         function draw(){
             ctx.fillStyle = "#4ec0ca"; ctx.fillRect(0, 0, cvs.width, cvs.height);
             if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
-
             bird.v += 0.45; bird.y += bird.v;
             ctx.save(); ctx.translate(bird.x, bird.y);
             if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
             else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
             ctx.restore();
-
             if(!dead) frame++;
             if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
-
             pipes.forEach((p,i)=>{
                 if(!dead) p.x -= 4.5;
                 if(pI.complete && pI.width > 0) {
@@ -134,7 +138,6 @@ async def index():
                 } else {
                     ctx.fillStyle = "green"; ctx.fillRect(p.x, 0, 80, p.t); ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
                 }
-
                 if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
                 if(!dead && !p.p && p.x < bird.x){
                     p.p = true; bird.score++;
