@@ -1,138 +1,125 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import HTMLResponse
-import uvicorn, os
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn, json, os
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ОПРЕДЕЛЕНИЕ ПУТЕЙ
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "db.json")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+if not os.path.exists(STATIC_DIR):
+    os.makedirs(STATIC_DIR)
+
+if not os.path.exists(DB_PATH):
+    with open(DB_PATH, "w") as f: json.dump({"tokens": 0, "best": 0}, f)
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
+
+@app.post("/earn/{score}")
+async def earn(score: int):
+    try:
+        with open(DB_PATH, "r") as f: db = json.load(f)
+    except: db = {"tokens": 0, "best": 0}
+    
+    db["tokens"] = db.get("tokens", 0) + 1
+    if int(score) > int(db.get("best", 0)):
+        db["best"] = int(score)
+        
+    with open(DB_PATH, "w") as f: json.dump(db, f)
+    return db
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-html, body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: #4ec0ca;
-}
-#ui {
-    position: absolute;
-    top: 15px;
-    width: 100%;
-    text-align: center;
-    color: white;
-    font-size: 20px;
-    font-weight: bold;
-    text-shadow: 2px 2px 0 #000;
-    z-index: 10;
-}
-canvas {
-    display: block;
-}
-</style>
-</head>
-
-<body>
-<div id="ui">UBUNTU: <span id="t">0</span> | РЕКОРД: <span id="b">0</span></div>
-<canvas id="c"></canvas>
-
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-
-    // --- TELEGRAM SAFE ---
-    if (window.Telegram && Telegram.WebApp) {
-        Telegram.WebApp.expand();
-    }
-
-    // --- CANVAS ---
-    const canvas = document.getElementById("c");
-    if (!canvas) {
-        alert("Canvas not found");
-        return;
-    }
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-        alert("Canvas context error");
-        return;
-    }
-
-    function resize() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    }
-    window.addEventListener("resize", resize);
-    resize();
-
-    // --- GAME STATE ---
-    let bird = { x: 80, y: 200, v: 0 };
-    let pipes = [];
-    let frame = 0;
-    let dead = false;
-
-    function loop() {
-        ctx.fillStyle = "#4ec0ca";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        bird.v += 0.5;
-        bird.y += bird.v;
-
-        ctx.fillStyle = "yellow";
-        ctx.fillRect(bird.x - 20, bird.y - 20, 40, 40);
-
-        if (!dead) frame++;
-        if (!dead && frame % 90 === 0) {
-            pipes.push({
-                x: canvas.width,
-                gap: Math.random() * (canvas.height - 300) + 150,
-                passed: false
-            });
+    <!DOCTYPE html><html><head><meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <script src="telegram.org"></script>
+    <style>
+        body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
+        #ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
+        canvas{display:block;width:100vw;height:100vh;}
+    </style></head><body>
+    <div id="ui">UBUNTU: <span id="t">0</span> | РЕКОРД: <span id="b">0</span></div>
+    <canvas id="c"></canvas>
+    <script>
+        const tg = window.Telegram ? window.Telegram.WebApp : null;
+        if(tg) {
+            tg.expand();
+            tg.ready();
         }
 
-        pipes.forEach(p => {
-            if (!dead) p.x -= 4;
+        const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
+        function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
+        window.onresize=res; res();
 
-            ctx.fillStyle = "green";
-            ctx.fillRect(p.x, 0, 80, p.gap - 80);
-            ctx.fillRect(p.x, p.gap + 80, 80, canvas.height);
+        let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
+        let pipes=[]; let frame=0; let dead=false; 
 
-            if (
-                bird.x + 20 > p.x &&
-                bird.x - 20 < p.x + 80 &&
-                (bird.y - 20 < p.gap - 80 || bird.y + 20 > p.gap + 80)
-            ) {
-                dead = true;
+        const bI=new Image(); bI.src='/static/bird.png';
+        const pI=new Image(); pI.src='/static/pipe.png';
+        const bg=new Image(); bg.src='/static/background.png';
+
+        function draw(){
+            ctx.fillStyle = "#4ec0ca";
+            ctx.fillRect(0, 0, cvs.width, cvs.height);
+            if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
+
+            bird.v += 0.45; bird.y += bird.v;
+            ctx.save(); ctx.translate(bird.x, bird.y);
+            if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
+            else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
+            ctx.restore();
+
+            if(!dead) frame++;
+            if(!dead && frame % 100 === 0) {
+                pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
             }
-        });
 
-        if (bird.y > canvas.height) {
-            bird.y = 200;
-            bird.v = 0;
-            pipes = [];
-            frame = 0;
-            dead = false;
+            pipes.forEach((p,i)=>{
+                if(!dead) p.x -= 4.5;
+                if(pI.complete && pI.width > 0) {
+                    ctx.drawImage(pI, p.x, 0, 80, p.t);
+                    ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
+                } else {
+                    ctx.fillStyle = "green";
+                    ctx.fillRect(p.x, 0, 80, p.t);
+                    ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
+                }
+
+                if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
+
+                if(!dead && !p.p && p.x < bird.x){
+                    p.p = true; bird.score++;
+                    fetch('/earn/' + bird.score, {method:'POST'}).then(r=>r.json()).then(data=>{
+                        document.getElementById('t').innerText = data.tokens;
+                        document.getElementById('b').innerText = data.best;
+                    });
+                }
+            });
+            if(bird.y > cvs.height + 50) { bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
+            requestAnimationFrame(draw);
         }
-
-        requestAnimationFrame(loop);
-    }
-
-    window.addEventListener("mousedown", () => bird.v = -8);
-    window.addEventListener("touchstart", () => bird.v = -8);
-
-    loop();
-});
-</script>
-</body>
-</html>
-"""
+        window.onmousedown = () => { if(!dead) bird.v=-8; };
+        window.ontouchstart = () => { if(!dead) bird.v=-8; };
+        draw();
+    </script></body></html>
+    """
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
