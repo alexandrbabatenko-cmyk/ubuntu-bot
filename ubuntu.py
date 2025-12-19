@@ -72,7 +72,6 @@ async def exchange(request: Request):
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    # Здесь можно добавить реальную отправку через TON API
     return {"sent": amount, "tokens": 0}
 
 # Игровая страница
@@ -84,13 +83,12 @@ async def index():
 <script src="telegram.org"></script>
 <style>
 body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
-#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
+#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;display:flex;justify-content:center;align-items:center;gap:15px;}
 canvas{display:block;width:100vw;height:100vh;}
-#exchangeBtn{position:absolute;top:60px;left:50%;transform:translateX(-50%);padding:10px 20px;font-size:18px;z-index:10;}
+#exchangeBtn{padding:6px 12px;font-size:16px;}
 </style>
 </head><body>
-<div id="ui"><span id="t">0</span> Ubuntu</div>
-<button id="exchangeBtn">Обменять очки на Ubuntu</button>
+<div id="ui"><span id="t">0</span> Ubuntu <button id="exchangeBtn">Обменять</button></div>
 <canvas id="c"></canvas>
 <script>
 const tg = window.Telegram ? window.Telegram.WebApp : null;
@@ -100,7 +98,7 @@ const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
 function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
 window.onresize=res; res();
 
-let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
+let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0, angle:0};
 let pipes=[]; let frame=0; let dead=false;
 
 const bI=new Image(); bI.src='/static/bird.png';
@@ -112,12 +110,15 @@ function draw(){
     ctx.fillRect(0, 0, cvs.width, cvs.height);
     if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
 
-    // физика птицы чуть плавнее
+    // физика птицы с наклоном
     bird.v += bird.g;
     bird.y += bird.v;
-    bird.v *= 0.98; // лёгкое затухание
+    bird.angle = Math.max(Math.min(bird.v * 6, 45), -30); // наклон
+    bird.v *= 0.98;
 
-    ctx.save(); ctx.translate(bird.x, bird.y);
+    ctx.save(); 
+    ctx.translate(bird.x, bird.y);
+    ctx.rotate(bird.angle * Math.PI / 180);
     if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
     else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
     ctx.restore();
@@ -188,5 +189,5 @@ document.getElementById('exchangeBtn').onclick = async () => {
 """
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
