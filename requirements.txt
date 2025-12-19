@@ -1,10 +1,2 @@
 fastapi
 uvicorn
-aiogram
-python-telegram-bot==22.3
-python-binance==1.0.29
-requests==2.32.3
-pytz==2025.2
-
-tzlocal==5.3.1
-TonTools==1.4.0
