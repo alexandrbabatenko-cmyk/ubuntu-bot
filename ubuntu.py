@@ -2,7 +2,7 @@ from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os
+import uvicorn, json, os, math, time
 
 app = FastAPI()
 
@@ -13,8 +13,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MIN_EXCHANGE = 10000  # минимальный порог вывода
-
 # Пути
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db.json")
@@ -23,6 +21,7 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
 
+# Если БД не существует, создаем
 if not os.path.exists(DB_PATH):
     with open(DB_PATH, "w") as f:
         json.dump({"users": {}}, f)
@@ -36,24 +35,22 @@ async def favicon():
 # Начисление токенов
 @app.post("/earn/{wallet}/{score}")
 async def earn(wallet: str, score: int):
-    if not wallet:
-        return {"tokens": 0}
-
     with open(DB_PATH, "r") as f:
         db = json.load(f)
+    if "users" not in db:
+        db["users"] = {}
 
     user = db["users"].get(wallet, {"tokens": 0, "best": 0})
     user["tokens"] += 1
-    if score > user.get("best", 0):
-        user["best"] = score
+    if int(score) > int(user.get("best", 0)):
+        user["best"] = int(score)
     db["users"][wallet] = user
 
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
-
     return user
 
-# Обмен токенов
+# Обмен токенов на Ubuntu
 @app.post("/exchange")
 async def exchange(request: Request):
     data = await request.json()
@@ -65,28 +62,19 @@ async def exchange(request: Request):
         db = json.load(f)
 
     user = db["users"].get(wallet)
-    tokens = user.get("tokens", 0) if user else 0
+    if not user or user.get("tokens", 0) < 1:
+        return JSONResponse({"error": "not enough tokens"}, status_code=400)
 
-    if tokens < MIN_EXCHANGE:
-        return JSONResponse(
-            {"error": f"Минимум для вывода — {MIN_EXCHANGE} UBUNTU"},
-            status_code=400
-        )
-
-    send_amount = (tokens // MIN_EXCHANGE) * MIN_EXCHANGE
-    user["tokens"] -= send_amount
+    amount = user["tokens"]
+    user["tokens"] = 0
     db["users"][wallet] = user
 
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    # ⚠️ Здесь позже можно подключить реальный перевод с горячего кошелька
-    return {
-        "sent": send_amount,
-        "tokens": user["tokens"]
-    }
+    return {"sent": amount, "tokens": 0}
 
-# Игровая страница с исправленной логикой начисления
+# Игровая страница с продвинутой физикой
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -104,15 +92,9 @@ canvas{display:block;width:100vw;height:100vh;}
 <canvas id="c"></canvas>
 <script>
 const tg = window.Telegram ? window.Telegram.WebApp : null;
-if(tg){ 
-    tg.expand(); 
-    tg.ready();
-    const tgWallet = tg.initDataUnsafe?.user?.id;
-    if(tgWallet) localStorage.setItem("wallet", tgWallet);
-}
+if(tg){ tg.expand(); tg.ready(); }
 
-const cvs=document.getElementById('c'); 
-const ctx=cvs.getContext('2d');
+const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
 function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
 window.onresize=res; res();
 
@@ -123,66 +105,65 @@ const bI=new Image(); bI.src='/static/bird.png';
 const pI=new Image(); pI.src='/static/pipe.png';
 const bg=new Image(); bg.src='/static/background.png';
 
-function addPipe(){
-    pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, passed:false});
-}
-
 function draw(){
     ctx.fillStyle = "#4ec0ca";
-    ctx.fillRect(0,0,cvs.width,cvs.height);
-    if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+    if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
 
+    // Физика птицы
     bird.v += bird.g;
     bird.y += bird.v;
     bird.v *= 0.98;
 
+    // наклон головы по скорости
     bird.angle += (bird.v * 6 - bird.angle) * 0.1;
+
+    // колебания крыльев
     bird.wingPhase += 0.2;
-    let wingOffset = Math.sin(bird.wingPhase) * 5;
+    let wingOffset = Math.sin(bird.wingPhase) * 5; // лёгкие колебания +/-5°
 
     ctx.save(); 
     ctx.translate(bird.x, bird.y);
     ctx.rotate((bird.angle + wingOffset) * Math.PI / 180);
     if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
-    else ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50);
+    else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
     ctx.restore();
 
     if(!dead) frame++;
-    if(!dead && frame % 100 === 0) addPipe();
+    if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
 
-    pipes.forEach(p=>{
+    pipes.forEach((p,i)=>{
         if(!dead) p.x -= 4.5;
         if(pI.complete && pI.width > 0){
+            // верхняя труба перевёрнута
             ctx.save();
             ctx.translate(p.x + 40, p.t);
-            ctx.scale(1,-1);
-            ctx.drawImage(pI,-40,0,80,p.t);
+            ctx.scale(1, -1);
+            ctx.drawImage(pI, -40, 0, 80, p.t);
             ctx.restore();
-            ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
+
+            // нижняя труба
+            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
         } else {
-            ctx.fillStyle="green";
-            ctx.fillRect(p.x,0,80,p.t);
-            ctx.fillRect(p.x,p.t+190,80,cvs.height);
+            ctx.fillStyle = "green";
+            ctx.fillRect(p.x, 0, 80, p.t);
+            ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
         }
 
-        // Столкновение
         if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
 
-        // Начисление токенов 1 раз за трубу
-        if(!p.passed && p.x+80 < bird.x){
-            p.passed = true;
-            bird.score++;
+        if(!dead && !p.p && p.x < bird.x){
+            p.p = true; bird.score++;
             const wallet = localStorage.getItem('wallet');
             if(wallet){
-                fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'})
-                .then(r=>r.json())
-                .then(data=>{document.getElementById('t').innerText=data.tokens;});
+                fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
+                    document.getElementById('t').innerText=data.tokens;
+                });
             }
         }
     });
 
     if(bird.y > cvs.height + 50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; bird.wingPhase=0; }
-
     requestAnimationFrame(draw);
 }
 
@@ -214,4 +195,5 @@ document.getElementById('exchangeBtn').onclick = async () => {
 """
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
