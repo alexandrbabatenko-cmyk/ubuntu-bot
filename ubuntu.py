@@ -49,7 +49,8 @@ async def index():
     return """
     <!DOCTYPE html><html><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <!-- ТЕЛЕГРАМ СКРИПТ -->
+    <script src="telegram.org"></script>
+    
     <script src="telegram.org"></script>
     <style>
         body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
@@ -126,3 +127,4 @@ if __name__ == "__main__":
     # ВАЖНО: Render передает порт через переменную окружения PORT
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
