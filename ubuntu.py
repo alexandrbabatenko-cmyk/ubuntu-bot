@@ -1,10 +1,13 @@
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os
+import uvicorn, json, os, logging
 
 app = FastAPI()
+
+# Логирование для отслеживания заявок на вывод (смотрите в консоли Render)
+logging.basicConfig(level=logging.INFO)
 
 app.add_middleware(
     CORSMiddleware,
@@ -13,7 +16,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ОПРЕДЕЛЕНИЕ ПУТЕЙ
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -22,26 +24,44 @@ if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
 
 if not os.path.exists(DB_PATH):
-    with open(DB_PATH, "w") as f: json.dump({"tokens": 0, "best": 0}, f)
+    with open(DB_PATH, "w") as f: json.dump({}, f)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    return Response(status_code=204)
-
 @app.post("/earn/{score}")
-async def earn(score: int):
+async def earn(score: int, user_id: str = "guest"):
     try:
         with open(DB_PATH, "r") as f: db = json.load(f)
-    except: db = {"tokens": 0, "best": 0}
+    except: db = {}
     
-    db["tokens"] = db.get("tokens", 0) + 1
-    if int(score) > int(db.get("best", 0)):
-        db["best"] = int(score)
+    if user_id not in db:
+        db[user_id] = {"tokens": 0, "best": 0}
+    
+    db[user_id]["tokens"] += 1
+    if score > db[user_id]["best"]:
+        db[user_id]["best"] = score
         
     with open(DB_PATH, "w") as f: json.dump(db, f)
-    return db
+    return {"tokens": db[user_id]["tokens"], "best": db[user_id]["best"]}
+
+@app.post("/withdraw")
+async def withdraw(request: Request):
+    data = await request.json()
+    user_id = str(data.get("user_id"))
+    wallet = data.get("wallet")
+    amount = int(data.get("amount"))
+
+    with open(DB_PATH, "r") as f: db = json.load(f)
+
+    if user_id in db and db[user_id]["tokens"] >= amount:
+        db[user_id]["tokens"] -= amount  # Списываем очки
+        with open(DB_PATH, "w") as f: json.dump(db, f)
+        
+        # ВЫ УВИДИТЕ ЭТУ СТРОКУ В ЛОГАХ RENDER
+        logging.info(f"!!! НОВАЯ ЗАЯВКА: Юзер {user_id} ждет {amount} токенов на кошелек {wallet}")
+        return {"status": "ok", "message": f"Заявка принята! {amount} токенов отправят на {wallet}"}
+    
+    return {"status": "error", "message": "Недостаточно очков!"}
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -51,32 +71,50 @@ async def index():
     <script src="telegram.org"></script>
     <style>
         body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
-        #ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
+        #ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:20px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
         canvas{display:block;width:100vw;height:100vh;}
+        #wBtn{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:100;padding:12px 20px;background:gold;border:none;border-radius:10px;font-weight:bold;box-shadow:0 4px 0 #b8860b;cursor:pointer;}
     </style></head><body>
     <div id="ui">UBUNTU: <span id="t">0</span> | РЕКОРД: <span id="b">0</span></div>
+    <button id="wBtn">ОБМЕНЯТЬ ОЧКИ</button>
     <canvas id="c"></canvas>
     <script>
-        const tg = window.Telegram ? window.Telegram.WebApp : null;
-        if(tg) {
-            tg.expand();
-            tg.ready();
-        }
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        const user_id = tg.initDataUnsafe?.user?.id || "guest";
 
         const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
         function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
         window.onresize=res; res();
 
-        let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
+        let bird={x:80, y:200, v:0, g:0.45, score:0};
         let pipes=[]; let frame=0; let dead=false; 
 
         const bI=new Image(); bI.src='/static/bird.png';
         const pI=new Image(); pI.src='/static/pipe.png';
         const bg=new Image(); bg.src='/static/background.png';
 
+        document.getElementById('wBtn').onclick = () => {
+            const currentScore = parseInt(document.getElementById('t').innerText);
+            if(currentScore < 100) return tg.showAlert("Минимум 100 очков!");
+            
+            const wallet = prompt("Введите ваш адрес TON кошелька:");
+            if(wallet && wallet.length > 10) {
+                fetch('/withdraw', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ user_id: user_id, wallet: wallet, amount: currentScore })
+                })
+                .then(r => r.json())
+                .then(res => {
+                    tg.showAlert(res.message);
+                    if(res.status === "ok") location.reload();
+                });
+            }
+        };
+
         function draw(){
-            ctx.fillStyle = "#4ec0ca";
-            ctx.fillRect(0, 0, cvs.width, cvs.height);
+            ctx.fillStyle = "#4ec0ca"; ctx.fillRect(0, 0, cvs.width, cvs.height);
             if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
 
             bird.v += 0.45; bird.y += bird.v;
@@ -86,9 +124,7 @@ async def index():
             ctx.restore();
 
             if(!dead) frame++;
-            if(!dead && frame % 100 === 0) {
-                pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
-            }
+            if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
 
             pipes.forEach((p,i)=>{
                 if(!dead) p.x -= 4.5;
@@ -96,16 +132,14 @@ async def index():
                     ctx.drawImage(pI, p.x, 0, 80, p.t);
                     ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
                 } else {
-                    ctx.fillStyle = "green";
-                    ctx.fillRect(p.x, 0, 80, p.t);
-                    ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
+                    ctx.fillStyle = "green"; ctx.fillRect(p.x, 0, 80, p.t); ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
                 }
 
                 if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
-
                 if(!dead && !p.p && p.x < bird.x){
                     p.p = true; bird.score++;
-                    fetch('/earn/' + bird.score, {method:'POST'}).then(r=>r.json()).then(data=>{
+                    fetch(`/earn/${bird.score}?user_id=${user_id}`, {method:'POST'})
+                    .then(r=>r.json()).then(data=>{
                         document.getElementById('t').innerText = data.tokens;
                         document.getElementById('b').innerText = data.best;
                     });
