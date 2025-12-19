@@ -2,7 +2,7 @@ from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os, time
+import uvicorn, json, os
 
 app = FastAPI()
 
@@ -83,143 +83,130 @@ async def exchange(request: Request):
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
+    # ⚠️ Здесь позже можно подключить реальный перевод с горячего кошелька
     return {
         "sent": send_amount,
         "tokens": user["tokens"]
     }
 
-# Игровая страница
+# Игровая страница с интеграцией Telegram кошелька
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<script src="telegram.org"></script>
 <style>
 body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
-#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;font-weight:bold;display:flex;justify-content:center;align-items:center;gap:15px;}
-button{padding:6px 12px;font-size:16px;}
-canvas{display:block;}
+#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;display:flex;justify-content:center;align-items:center;gap:15px;}
+canvas{display:block;width:100vw;height:100vh;}
+#exchangeBtn{padding:6px 12px;font-size:16px;}
 </style>
-</head>
-<body>
-<div id="ui">
-<span id="t">0</span> UBUNTU
-<button id="exchangeBtn">Обменять</button>
-</div>
+</head><body>
+<div id="ui"><span id="t">0</span> Ubuntu <button id="exchangeBtn">Обменять</button></div>
 <canvas id="c"></canvas>
-
 <script>
-const cvs = document.getElementById('c');
-const ctx = cvs.getContext('2d');
-
-// Фоновая картинка
-const bg = new Image();
-bg.src = '/static/background.png';
-
-// Настройка canvas
-function resizeCanvas(){
-    cvs.width = window.innerWidth;
-    cvs.height = window.innerHeight;
-}
-window.addEventListener("resize", resizeCanvas);
-resizeCanvas();
-
-// Параметры пола
-const floorHeight = 100;
-
-// Птица
-let bird = {x:80, y:200, w:40, h:40, v:0, g:0.5};
-let pipes = [];
-let score = 0;
-const pipeGap = 180;
-
-// Генерация трубы
-function addPipe(){
-    const maxHeight = cvs.height - pipeGap - floorHeight - 50;
-    const height = Math.random() * (maxHeight - 50) + 50;
-    pipes.push({x:cvs.width, t:height, passed:false});
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+if(tg){ 
+    tg.expand(); 
+    tg.ready();
+    // Telegram user id используем как wallet
+    const tgWallet = tg.initDataUnsafe?.user?.id;
+    if(tgWallet) localStorage.setItem("wallet", tgWallet);
 }
 
-// Главная функция отрисовки
+const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
+function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
+window.onresize=res; res();
+
+let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0, angle:0, wingPhase:0};
+let pipes=[]; let frame=0; let dead=false;
+
+const bI=new Image(); bI.src='/static/bird.png';
+const pI=new Image(); pI.src='/static/pipe.png';
+const bg=new Image(); bg.src='/static/background.png';
+
 function draw(){
-    // фон
-    if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
-    else { ctx.fillStyle="#4ec0ca"; ctx.fillRect(0,0,cvs.width,cvs.height); }
+    ctx.fillStyle = "#4ec0ca";
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+    if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
 
-    // пол
-    ctx.fillStyle = "#654321";
-    ctx.fillRect(0, cvs.height - floorHeight, cvs.width, floorHeight);
-
-    // физика птицы
+    // Физика птицы
     bird.v += bird.g;
     bird.y += bird.v;
-    if(bird.y + bird.h > cvs.height - floorHeight){ bird.y = cvs.height - floorHeight - bird.h; bird.v = 0; }
+    bird.v *= 0.98;
 
-    // птица
-    ctx.fillStyle = "yellow";
-    ctx.fillRect(bird.x, bird.y, bird.w, bird.h);
+    bird.angle += (bird.v * 6 - bird.angle) * 0.1;
+    bird.wingPhase += 0.2;
+    let wingOffset = Math.sin(bird.wingPhase) * 5;
 
-    // трубы
-    pipes.forEach(p=>{
-        p.x -= 4;
-        ctx.fillStyle = "green";
-        ctx.fillRect(p.x, 0, 80, p.t);
-        ctx.fillRect(p.x, p.t + pipeGap, 80, cvs.height - floorHeight - (p.t + pipeGap));
+    ctx.save(); 
+    ctx.translate(bird.x, bird.y);
+    ctx.rotate((bird.angle + wingOffset) * Math.PI / 180);
+    if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
+    else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
+    ctx.restore();
 
-        // начисление очков
-        if(!p.passed && p.x + 80 < bird.x){
-            p.passed = true;
-            score++;
-            const wallet = localStorage.getItem("wallet");
+    if(!dead) frame++;
+    if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
+
+    pipes.forEach((p,i)=>{
+        if(!dead) p.x -= 4.5;
+        if(pI.complete && pI.width > 0){
+            ctx.save();
+            ctx.translate(p.x + 40, p.t);
+            ctx.scale(1, -1);
+            ctx.drawImage(pI, -40, 0, 80, p.t);
+            ctx.restore();
+            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
+        } else {
+            ctx.fillStyle = "green";
+            ctx.fillRect(p.x, 0, 80, p.t);
+            ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
+        }
+
+        if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
+
+        if(!dead && !p.p && p.x < bird.x){
+            p.p = true; bird.score++;
+            const wallet = localStorage.getItem('wallet');
             if(wallet){
-                fetch(`/earn/${wallet}/${score}`, {method:"POST"})
+                fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'})
                 .then(r=>r.json())
-                .then(d=>document.getElementById("t").innerText=d.tokens);
+                .then(data=>{document.getElementById('t').innerText=data.tokens;});
             }
         }
     });
 
-    // генерация новой трубы
-    if(Math.random()<0.01){ addPipe(); }
-
+    if(bird.y > cvs.height + 50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; bird.wingPhase=0; }
     requestAnimationFrame(draw);
 }
+
+window.onmousedown = () => { if(!dead) bird.v=-8; };
+window.ontouchstart = () => { if(!dead) bird.v=-8; };
 draw();
 
-// прыжок
-onclick = () => { bird.v = -8; };
-ontouchstart = () => { bird.v = -8; };
-
-// обмен токенов
-document.getElementById("exchangeBtn").onclick = async () => {
-    let wallet = localStorage.getItem("wallet");
+document.getElementById('exchangeBtn').onclick = async () => {
+    let wallet = localStorage.getItem('wallet');
     if(!wallet){
-        wallet = prompt("Введите кошелек:");
+        wallet = prompt("Введите ваш кошелек для получения Ubuntu:");
         if(!wallet) return;
-        localStorage.setItem("wallet", wallet);
-        alert("Кошелек сохранён. Теперь очки будут начисляться.");
-        return;
+        localStorage.setItem('wallet', wallet);
     }
-
-    const r = await fetch("/exchange",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
+    const res = await fetch('/exchange',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
         body: JSON.stringify({wallet})
     });
-    const d = await r.json();
-
-    if(d.error) alert(d.error);
-    else{
-        alert("Отправлено "+d.sent+" UBUNTU");
-        document.getElementById("t").innerText = d.tokens;
+    const data = await res.json();
+    if(data.error) alert("Ошибка: "+data.error);
+    else {
+        alert("Отправлено "+data.sent+" Ubuntu на ваш кошелек! Остаток очков: "+data.tokens);
+        document.getElementById('t').innerText = data.tokens;
     }
-}
+};
 </script>
-</body>
-</html>
+</body></html>
 """
 
 if __name__ == "__main__":
