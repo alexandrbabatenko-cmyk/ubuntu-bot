@@ -3,18 +3,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn, json, os
+import requests
 
 # 🔐 Настройки горячего кошелька
 HOT_WALLET_ADDRESS = "UQDpW4gtsT9Y77oze2el7fpJ-9OFPtvgSLmZZ6a57gOgL4vZ"
 HOT_WALLET_KEY = "6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13"
 
 MIN_EXCHANGE = 10000  # минимальный порог вывода
-
-# Безопасная проверка библиотеки requests для деплоя
-try:
-    import requests
-except ImportError:
-    requests = None
 
 app = FastAPI()
 
@@ -64,25 +59,28 @@ async def earn(wallet: str, score: int):
         json.dump(db, f)
     return user
 
-# Функция безопасной отправки Ubuntu через горячий кошелек
+# 🔹 Функция отправки UBUNTU с горячего кошелька через TonCenter mainnet
 def send_ubuntu(from_address, key, to_address, amount):
-    if not requests:
-        print("requests не установлен — транзакция не выполнена")
-        return True
-    # 🔹 Пример вызова TonCenter API (раскомментировать для реальной отправки)
-    # url = "https://toncenter.com/api/v2/sendTransaction"
-    # data = {
-    #     "from": from_address,
-    #     "to": to_address,
-    #     "amount": amount,
-    #     "secret": key
-    # }
-    # resp = requests.post(url, json=data)
-    # return resp.ok
-    print(f"[DEBUG] Отправлено {amount} UBUNTU с {from_address} на {to_address}")
-    return True
+    url = "https://toncenter.com/api/v2/sendTransaction"
+    payload = {
+        "from": from_address,
+        "to": to_address,
+        "amount": amount,
+        "secret": key
+    }
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        if resp.ok:
+            print(f"[MAINNET] Отправлено {amount} UBUNTU с {from_address} на {to_address}")
+            return True
+        else:
+            print(f"[ERROR] TonCenter ответил: {resp.text}")
+            return False
+    except Exception as e:
+        print(f"[EXCEPTION] Ошибка отправки: {e}")
+        return False
 
-# Обмен токенов на Ubuntu
+# Обмен токенов на UBUNTU
 @app.post("/exchange")
 async def exchange(request: Request):
     data = await request.json()
@@ -109,7 +107,7 @@ async def exchange(request: Request):
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    # 🔹 Отправка через горячий кошелек
+    # Отправляем UBUNTU с горячего кошелька на кошелек игрока
     send_ubuntu(HOT_WALLET_ADDRESS, HOT_WALLET_KEY, wallet, send_amount)
 
     return {"sent": send_amount, "tokens": user["tokens"]}
