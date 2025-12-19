@@ -112,6 +112,7 @@ window.onresize=res; res();
 let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
 let pipes=[]; let frame=0; let dead=false;
 let lastRecordScore = 0;
+let recordPipes = []; // массив прошлых рекордных столбиков
 
 const bI=new Image(); bI.src='/static/bird.png';
 const pI=new Image(); pI.src='/static/pipe.png';
@@ -120,6 +121,15 @@ const bg=new Image(); bg.src='/static/background.png';
 function draw(){
     ctx.fillStyle = "#4ec0ca"; ctx.fillRect(0, 0, cvs.width, cvs.height);
     if(bg.complete) ctx.drawImage(bg, 0,0,cvs.width,cvs.height);
+
+    // рисуем рекордные столбики прошлых игр
+    for(let i=0; i<recordPipes.length; i++){
+        const p = recordPipes[i];
+        ctx.fillStyle = "yellow";
+        ctx.fillRect(p.x,0,80,p.t);
+        ctx.fillRect(p.x,p.t+190,80,cvs.height);
+    }
+
     bird.v += 0.45; bird.y += bird.v;
     ctx.save(); ctx.translate(bird.x, bird.y);
     if(bI.complete && bI.width>0) ctx.drawImage(bI,-25,-25,50,50);
@@ -132,7 +142,7 @@ function draw(){
     pipes.forEach((p,i)=>{
         if(!dead) p.x-=4.5;
 
-        // Рисуем столбики
+        // Рисуем текущие столбики
         if(p.highlight){
             ctx.fillStyle = "yellow";
         } else {
@@ -153,12 +163,9 @@ function draw(){
                 fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
                     document.getElementById('t').innerText=data.tokens;
 
-                    // Подсветка прошлых рекордных столбиков
+                    // обновляем рекордные столбики, если новый рекорд
                     if(data.best > lastRecordScore){
-                        // Подсветим столбики, которые соответствуют прошлому рекорду
-                        for(let j=0; j<lastRecordScore; j++){
-                            if(pipes[j]) pipes[j].highlight = true;
-                        }
+                        recordPipes = pipes.slice(0, data.best); // запоминаем желтые столбики
                         lastRecordScore = data.best;
                     }
                 });
