@@ -123,13 +123,21 @@ function draw(){
 
     pipes.forEach((p,i)=>{
         if(!dead) p.x -= 4.5;
+
         if(pI.complete && pI.width > 0){
-            ctx.drawImage(pI, p.x, 0, 80, p.t);
-            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
+            // Верхняя труба (перевёрнутая)
+            ctx.save();
+            ctx.translate(p.x, p.t);
+            ctx.scale(1, -1);
+            ctx.drawImage(pI, 0, 0, 80, p.t);
+            ctx.restore();
+
+            // Нижняя труба
+            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height - p.t - 190);
         } else {
             ctx.fillStyle = "green";
             ctx.fillRect(p.x, 0, 80, p.t);
-            ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
+            ctx.fillRect(p.x, p.t + 190, 80, cvs.height - p.t - 190);
         }
 
         if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
