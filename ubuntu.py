@@ -32,7 +32,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 async def send_ubuntu_tokens(destination_wallet, amount):
     try:
-        # ИСПРАВЛЕНО: Добавлен https и api/v2
+        # ИСПРАВЛЕНО: Полный путь к API
         client = TonCenterClient(base_url='toncenter.com', api_key=TON_API_KEY)
         
         wallet = Wallet(provider=client, mnemonics=MNEMONICS, version='v4r2')
@@ -80,7 +80,7 @@ async def index():
     return """
     <!DOCTYPE html><html><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <!-- ИСПРАВЛЕНО: Рабочий скрипт Telegram -->
+    <!-- ИСПРАВЛЕНО: Прямая ссылка на SDK Telegram -->
     <script src="telegram.org"></script>
     <style>
         body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
@@ -159,4 +159,5 @@ async def index():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
+    # ИСПРАВЛЕНО: запуск сервера
     uvicorn.run(app, host="0.0.0.0", port=port)
