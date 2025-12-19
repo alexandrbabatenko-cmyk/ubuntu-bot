@@ -112,6 +112,7 @@ window.onresize=res; res();
 let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
 let pipes=[]; let frame=0; let dead=false;
 let highlightFrames = 0;
+let lastRecordScore = 0;
 
 const bI=new Image(); bI.src='/static/bird.png';
 const pI=new Image(); pI.src='/static/pipe.png';
@@ -127,41 +128,55 @@ function draw(){
     ctx.restore();
 
     if(!dead) frame++;
-    if(!dead && frame % 100===0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
+    if(!dead && frame % 100===0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false, highlight:false});
 
     pipes.forEach((p,i)=>{
         if(!dead) p.x-=4.5;
-        if(pI.complete && pI.width>0){
+
+        // Подсветка рекордного столбика
+        if(p.highlight){
+            ctx.fillStyle = "yellow";
+            ctx.fillRect(p.x, 0, 80, p.t);
+            ctx.fillRect(p.x, p.t+190, 80, cvs.height);
+        } else if(pI.complete && pI.width>0){
             ctx.drawImage(pI,p.x,0,80,p.t);
             ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
         } else {
             ctx.fillStyle="green"; ctx.fillRect(p.x,0,80,p.t);
             ctx.fillRect(p.x,p.t+190,80,cvs.height);
         }
+
         if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
+
         if(!dead && !p.p && p.x<bird.x){
             p.p=true; bird.score++;
+
             const wallet = localStorage.getItem('wallet');
             if(wallet){
                 fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
                     document.getElementById('t').innerText=data.tokens;
                     document.getElementById('b').innerText=data.best;
-                    if(data.new_record){
+
+                    // Если побили прошлый рекорд, подсветить соответствующий столбик
+                    if(bird.score > lastRecordScore){
                         highlightFrames = 60;
+                        // находим столик соответствующий прошлому рекорду
+                        if(pipes[i - (bird.score - lastRecordScore - 1)]){
+                            pipes[i - (bird.score - lastRecordScore - 1)].highlight = true;
+                        }
                     }
+                    lastRecordScore = data.best;
                 });
             }
         }
     });
 
+    // Эффект подсветки для рекордного столбика
     if(highlightFrames > 0){
-        ctx.fillStyle = "yellow";
-        ctx.font = "bold 28px sans-serif";
-        ctx.fillText("РЕКОРД: " + document.getElementById('b').innerText, 20, 50);
         highlightFrames--;
     }
 
-    if(bird.y>cvs.height+50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
+    if(bird.y>cvs.height+50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; lastRecordScore=0; }
     requestAnimationFrame(draw);
 }
 
@@ -193,5 +208,5 @@ document.getElementById('exchangeBtn').onclick = async () => {
 """
 
 if __name__=="__main__":
-    port=int(os.environ.get("PORT", 8000))
+    port=int(os.environ.get("PORT",8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
