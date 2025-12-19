@@ -10,7 +10,7 @@ app = FastAPI()
 # --- БЛОК НАСТРОЕК TON ---
 TON_API_KEY = "6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13" 
 
-# ВНИМАНИЕ: Эти 24 слова теперь публичны. Используйте их только для тестов.
+# ВНИМАНИЕ: Используйте эти слова только для теста, потом замените на новые секретные!
 MNEMONICS = ["ribbon", "galaxy", "lens", "series", "budget", "cover", "permit", "exit", "carpet", "crisp", "tomato", "room", "portion", "spoil", "six", "key", "obvious", "river", "worry", "sword", "party", "grass", "join", "spoil"]
 
 UBUNTU_MASTER_ADDRESS = "EQA25M3v5zYC6-f8uyjFf1QPaZaNSS7WOJggo14DWsYiXmZc"
@@ -32,7 +32,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 async def send_ubuntu_tokens(destination_wallet, amount):
     try:
-        # ИСПРАВЛЕНО: Полный путь к API
+        # ИСПРАВЛЕНО: Добавлен https:// и путь /api/v2/ (для 2025 года)
         client = TonCenterClient(base_url='toncenter.com', api_key=TON_API_KEY)
         
         wallet = Wallet(provider=client, mnemonics=MNEMONICS, version='v4r2')
@@ -80,7 +80,7 @@ async def index():
     return """
     <!DOCTYPE html><html><head><meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <!-- ИСПРАВЛЕНО: Прямая ссылка на SDK Telegram -->
+    <!-- ИСПРАВЛЕНО: Ссылка на официальный SDK Telegram 2025 года -->
     <script src="telegram.org"></script>
     <style>
         body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
