@@ -1,5 +1,7 @@
 fastapi
 uvicorn
 tonsdk
+requests
+
 
 
