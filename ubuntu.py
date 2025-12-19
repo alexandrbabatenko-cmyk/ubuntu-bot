@@ -88,7 +88,9 @@ async def exchange(request: Request):
 async def index():
     return """
 <!DOCTYPE html>
-<html><head><meta charset="UTF-8">
+<html>
+<head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <script src="telegram.org"></script>
 <style>
@@ -97,7 +99,8 @@ body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
 canvas{display:block;width:100vw;height:100vh;}
 #exchangeBtn{position:absolute;top:60px;left:50%;transform:translateX(-50%);padding:10px 20px;font-size:18px;z-index:10;}
 </style>
-</head><body>
+</head>
+<body>
 <div id="ui">UBUNTU: <span id="t">0</span></div>
 <button id="exchangeBtn">Обменять очки на Ubuntu</button>
 <canvas id="c"></canvas>
@@ -105,67 +108,70 @@ canvas{display:block;width:100vw;height:100vh;}
 const tg = window.Telegram ? window.Telegram.WebApp : null;
 if(tg){ tg.expand(); tg.ready(); }
 
-const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
-function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
-window.onresize=res; res();
+const cvs = document.getElementById('c'); 
+const ctx = cvs.getContext('2d');
 
-let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
-let pipes=[]; let frame=0; let dead=false;
+const GAME_WIDTH = 400;
+const GAME_HEIGHT = 600;
+let scaleX = 1, scaleY = 1;
+
+function res(){
+    cvs.width = window.innerWidth;
+    cvs.height = window.innerHeight;
+    scaleX = cvs.width / GAME_WIDTH;
+    scaleY = cvs.height / GAME_HEIGHT;
+}
+window.onresize = res; res();
+
+let bird = {x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
+let pipes = []; let frame=0; let dead=false;
 let lastRecordScore = 0;
-let recordPipes = []; // массив прошлых рекордных столбиков
+let recordPipes = [];
 
-const bI=new Image(); bI.src='/static/bird.png';
-const pI=new Image(); pI.src='/static/pipe.png';
-const bg=new Image(); bg.src='/static/background.png';
+const bI = new Image(); bI.src='/static/bird.png';
+const bg = new Image(); bg.src='/static/background.png';
+const PIPE_WIDTH = 80;
+const PIPE_GAP = 190;
 
 function draw(){
-    ctx.fillStyle = "#4ec0ca"; ctx.fillRect(0, 0, cvs.width, cvs.height);
-    if(bg.complete) ctx.drawImage(bg, 0,0,cvs.width,cvs.height);
+    ctx.fillStyle="#4ec0ca"; ctx.fillRect(0,0,cvs.width,cvs.height);
+    if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
 
-    // рисуем рекордные столбики прошлых игр
+    ctx.save();
+    ctx.scale(scaleX, scaleY);
+
     for(let i=0; i<recordPipes.length; i++){
         const p = recordPipes[i];
-        ctx.fillStyle = "yellow";
-        ctx.fillRect(p.x,0,80,p.t);
-        ctx.fillRect(p.x,p.t+190,80,cvs.height);
+        ctx.fillStyle="yellow";
+        ctx.fillRect(p.x,0,PIPE_WIDTH,p.t);
+        ctx.fillRect(p.x,p.t+PIPE_GAP,PIPE_WIDTH,GAME_HEIGHT-p.t-PIPE_GAP);
     }
 
-    bird.v += 0.45; bird.y += bird.v;
-    ctx.save(); ctx.translate(bird.x, bird.y);
-    if(bI.complete && bI.width>0) ctx.drawImage(bI,-25,-25,50,50);
-    else {ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50);}
+    bird.v += bird.g; bird.y += bird.v;
+    ctx.save(); ctx.translate(bird.x,bird.y);
+    if(bI.complete && bI.width>0) ctx.drawImage(bI,-bird.w/2,-bird.h/2,bird.w,bird.h);
+    else {ctx.fillStyle="yellow"; ctx.fillRect(-bird.w/2,-bird.h/2,bird.w,bird.h);}
     ctx.restore();
 
     if(!dead) frame++;
-    if(!dead && frame % 100===0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false, highlight:false});
+    if(!dead && frame%100===0) pipes.push({x:GAME_WIDTH,t:Math.random()*(GAME_HEIGHT-350)+50,p:false,highlight:false});
 
-    pipes.forEach((p,i)=>{
+    pipes.forEach((p)=>{
         if(!dead) p.x-=4.5;
+        ctx.fillStyle = p.highlight ? "yellow" : "green";
+        ctx.fillRect(p.x,0,PIPE_WIDTH,p.t);
+        ctx.fillRect(p.x,p.t+PIPE_GAP,PIPE_WIDTH,GAME_HEIGHT-p.t-PIPE_GAP);
 
-        // Рисуем текущие столбики
-        if(p.highlight){
-            ctx.fillStyle = "yellow";
-        } else {
-            ctx.fillStyle = "green";
-        }
-        ctx.fillRect(p.x,0,80,p.t);
-        ctx.fillRect(p.x,p.t+190,80,cvs.height);
+        if(!dead && bird.x+bird.w/2>p.x && bird.x-bird.w/2<p.x+PIPE_WIDTH && (bird.y-bird.h/2<p.t || bird.y+bird.h/2>p.t+PIPE_GAP)) dead=true;
 
-        // Проверка на столкновение
-        if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
-
-        // Когда птица пролетает столбик
         if(!dead && !p.p && p.x<bird.x){
             p.p=true; bird.score++;
-
             const wallet = localStorage.getItem('wallet');
             if(wallet){
                 fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
                     document.getElementById('t').innerText=data.tokens;
-
-                    // обновляем рекордные столбики, если новый рекорд
-                    if(data.best > lastRecordScore){
-                        recordPipes = pipes.slice(0, data.best); // запоминаем желтые столбики
+                    if(data.best>lastRecordScore){
+                        recordPipes = pipes.slice(0,data.best);
                         lastRecordScore = data.best;
                     }
                 });
@@ -173,9 +179,9 @@ function draw(){
         }
     });
 
-    if(bird.y>cvs.height+50){ 
-        bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; 
-    }
+    if(bird.y>GAME_HEIGHT+50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
+
+    ctx.restore();
     requestAnimationFrame(draw);
 }
 
@@ -207,5 +213,5 @@ document.getElementById('exchangeBtn').onclick = async () => {
 """
 
 if __name__=="__main__":
-    port=int(os.environ.get("PORT",8000))
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
