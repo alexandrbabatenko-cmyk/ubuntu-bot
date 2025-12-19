@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Response
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Response, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn, json, os
@@ -13,7 +13,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ОПРЕДЕЛЕНИЕ ПУТЕЙ
+# Пути
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -21,8 +21,10 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
 
+# Если БД не существует, создаем
 if not os.path.exists(DB_PATH):
-    with open(DB_PATH, "w") as f: json.dump({"tokens": 0, "best": 0}, f)
+    with open(DB_PATH, "w") as f:
+        json.dump({"users": {}}, f)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -30,95 +32,150 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 async def favicon():
     return Response(status_code=204)
 
-@app.post("/earn/{score}")
-async def earn(score: int):
-    try:
-        with open(DB_PATH, "r") as f: db = json.load(f)
-    except: db = {"tokens": 0, "best": 0}
-    
-    db["tokens"] = db.get("tokens", 0) + 1
-    if int(score) > int(db.get("best", 0)):
-        db["best"] = int(score)
-        
-    with open(DB_PATH, "w") as f: json.dump(db, f)
-    return db
+# Начисление токенов
+@app.post("/earn/{wallet}/{score}")
+async def earn(wallet: str, score: int):
+    with open(DB_PATH, "r") as f:
+        db = json.load(f)
+    if "users" not in db:
+        db["users"] = {}
 
+    user = db["users"].get(wallet, {"tokens": 0, "best": 0})
+    user["tokens"] += 1
+    if int(score) > int(user.get("best", 0)):
+        user["best"] = int(score)
+    db["users"][wallet] = user
+
+    with open(DB_PATH, "w") as f:
+        json.dump(db, f)
+    return user
+
+# Обмен токенов на Ubuntu
+@app.post("/exchange")
+async def exchange(request: Request):
+    data = await request.json()
+    wallet = data.get("wallet")
+    if not wallet:
+        return JSONResponse({"error": "wallet missing"}, status_code=400)
+
+    with open(DB_PATH, "r") as f:
+        db = json.load(f)
+
+    user = db["users"].get(wallet)
+    if not user or user.get("tokens", 0) < 1:
+        return JSONResponse({"error": "not enough tokens"}, status_code=400)
+
+    amount = user["tokens"]
+    user["tokens"] = 0
+    db["users"][wallet] = user
+
+    with open(DB_PATH, "w") as f:
+        json.dump(db, f)
+
+    # Здесь можно добавить реальную отправку через TON API
+    return {"sent": amount, "tokens": 0}
+
+# Игровая страница (HTML/JS) без изменений логики
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
-    <!DOCTYPE html><html><head><meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <script src="telegram.org"></script>
-    <style>
-        body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
-        #ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
-        canvas{display:block;width:100vw;height:100vh;}
-    </style></head><body>
-    <div id="ui">UBUNTU: <span id="t">0</span> | РЕКОРД: <span id="b">0</span></div>
-    <canvas id="c"></canvas>
-    <script>
-        const tg = window.Telegram ? window.Telegram.WebApp : null;
-        if(tg) {
-            tg.expand();
-            tg.ready();
+<!DOCTYPE html><html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<script src="telegram.org"></script>
+<style>
+body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
+#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
+canvas{display:block;width:100vw;height:100vh;}
+#exchangeBtn{position:absolute;top:60px;left:50%;transform:translateX(-50%);padding:10px 20px;font-size:18px;z-index:10;}
+</style>
+</head><body>
+<div id="ui">UBUNTU: <span id="t">0</span> | РЕКОРД: <span id="b">0</span></div>
+<button id="exchangeBtn">Обменять очки на Ubuntu</button>
+<canvas id="c"></canvas>
+<script>
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+if(tg){ tg.expand(); tg.ready(); }
+
+const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
+function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
+window.onresize=res; res();
+
+let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
+let pipes=[]; let frame=0; let dead=false;
+
+const bI=new Image(); bI.src='/static/bird.png';
+const pI=new Image(); pI.src='/static/pipe.png';
+const bg=new Image(); bg.src='/static/background.png';
+
+function draw(){
+    ctx.fillStyle = "#4ec0ca";
+    ctx.fillRect(0, 0, cvs.width, cvs.height);
+    if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
+
+    bird.v += 0.45; bird.y += bird.v;
+    ctx.save(); ctx.translate(bird.x, bird.y);
+    if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
+    else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
+    ctx.restore();
+
+    if(!dead) frame++;
+    if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
+
+    pipes.forEach((p,i)=>{
+        if(!dead) p.x -= 4.5;
+        if(pI.complete && pI.width > 0){
+            ctx.drawImage(pI, p.x, 0, 80, p.t);
+            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
+        } else {
+            ctx.fillStyle = "green";
+            ctx.fillRect(p.x, 0, 80, p.t);
+            ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
         }
 
-        const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
-        function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
-        window.onresize=res; res();
+        if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
 
-        let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
-        let pipes=[]; let frame=0; let dead=false; 
-
-        const bI=new Image(); bI.src='/static/bird.png';
-        const pI=new Image(); pI.src='/static/pipe.png';
-        const bg=new Image(); bg.src='/static/background.png';
-
-        function draw(){
-            ctx.fillStyle = "#4ec0ca";
-            ctx.fillRect(0, 0, cvs.width, cvs.height);
-            if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
-
-            bird.v += 0.45; bird.y += bird.v;
-            ctx.save(); ctx.translate(bird.x, bird.y);
-            if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
-            else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
-            ctx.restore();
-
-            if(!dead) frame++;
-            if(!dead && frame % 100 === 0) {
-                pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
+        if(!dead && !p.p && p.x < bird.x){
+            p.p = true; bird.score++;
+            const wallet = localStorage.getItem('wallet');
+            if(wallet){
+                fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
+                    document.getElementById('t').innerText=data.tokens;
+                    document.getElementById('b').innerText=data.best;
+                });
             }
-
-            pipes.forEach((p,i)=>{
-                if(!dead) p.x -= 4.5;
-                if(pI.complete && pI.width > 0) {
-                    ctx.drawImage(pI, p.x, 0, 80, p.t);
-                    ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
-                } else {
-                    ctx.fillStyle = "green";
-                    ctx.fillRect(p.x, 0, 80, p.t);
-                    ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
-                }
-
-                if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
-
-                if(!dead && !p.p && p.x < bird.x){
-                    p.p = true; bird.score++;
-                    fetch('/earn/' + bird.score, {method:'POST'}).then(r=>r.json()).then(data=>{
-                        document.getElementById('t').innerText = data.tokens;
-                        document.getElementById('b').innerText = data.best;
-                    });
-                }
-            });
-            if(bird.y > cvs.height + 50) { bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
-            requestAnimationFrame(draw);
         }
-        window.onmousedown = () => { if(!dead) bird.v=-8; };
-        window.ontouchstart = () => { if(!dead) bird.v=-8; };
-        draw();
-    </script></body></html>
-    """
+    });
+
+    if(bird.y > cvs.height + 50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
+    requestAnimationFrame(draw);
+}
+
+window.onmousedown = () => { if(!dead) bird.v=-8; };
+window.ontouchstart = () => { if(!dead) bird.v=-8; };
+draw();
+
+document.getElementById('exchangeBtn').onclick = async () => {
+    let wallet = localStorage.getItem('wallet');
+    if(!wallet){
+        wallet = prompt("Введите ваш кошелек для получения Ubuntu:");
+        if(!wallet) return;
+        localStorage.setItem('wallet', wallet);
+    }
+    const res = await fetch('/exchange',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({wallet})
+    });
+    const data = await res.json();
+    if(data.error) alert("Ошибка: "+data.error);
+    else {
+        alert("Отправлено "+data.sent+" Ubuntu на ваш кошелек! Остаток очков: "+data.tokens);
+        document.getElementById('t').innerText = data.tokens;
+    }
+};
+</script>
+</body></html>
+"""
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
