@@ -71,9 +71,10 @@ async def exchange(request: Request):
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
+    # Здесь можно добавить реальную отправку через TON API
     return {"sent": amount, "tokens": 0}
 
-# Игровая страница (HTML/JS) с исправленными верхними трубами
+# Игровая страница (HTML/JS)
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -82,13 +83,15 @@ async def index():
 <script src="telegram.org"></script>
 <style>
 body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
-#ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;}
+#ui{position:absolute;top:10px;width:100%;text-align:center;color:white;font-size:20px;z-index:10;text-shadow:1px 1px 0 #000;font-weight:bold;}
 canvas{display:block;width:100vw;height:100vh;}
-#exchangeBtn{position:absolute;top:60px;left:50%;transform:translateX(-50%);padding:10px 20px;font-size:18px;z-index:10;}
+#exchangeBtn{margin-left:10px;padding:5px 10px;font-size:16px;}
 </style>
 </head><body>
-<div id="ui">UBUNTU: <span id="t">0</span> | РЕКОРД: <span id="b">0</span></div>
-<button id="exchangeBtn">Обменять очки на Ubuntu</button>
+<div id="ui">
+    UBUNTU: <span id="t">0</span>
+    <button id="exchangeBtn">Обменять</button>
+</div>
 <canvas id="c"></canvas>
 <script>
 const tg = window.Telegram ? window.Telegram.WebApp : null;
@@ -119,24 +122,21 @@ function draw(){
     if(!dead) frame++;
     if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
 
-    pipes.forEach((p)=>{
+    pipes.forEach((p,i)=>{
         if(!dead) p.x -= 4.5;
-
-        // Верхняя труба - отражаем по вертикали
         if(pI.complete && pI.width > 0){
+            // Верхняя труба перевернута
             ctx.save();
-            ctx.translate(p.x, p.t);
+            ctx.translate(p.x + 40, p.t);
             ctx.scale(1, -1);
-            ctx.drawImage(pI, 0, 0, 80, p.t);
+            ctx.drawImage(pI, -40, 0, 80, p.t);
             ctx.restore();
 
-            // Нижняя труба - обычная
-            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
+            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height - p.t - 190);
         } else {
-            // fallback зеленые столбики
             ctx.fillStyle = "green";
             ctx.fillRect(p.x, 0, 80, p.t);
-            ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
+            ctx.fillRect(p.x, p.t + 190, 80, cvs.height - p.t - 190);
         }
 
         if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
@@ -147,7 +147,6 @@ function draw(){
             if(wallet){
                 fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
                     document.getElementById('t').innerText=data.tokens;
-                    document.getElementById('b').innerText=data.best;
                 });
             }
         }
