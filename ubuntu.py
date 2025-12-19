@@ -13,7 +13,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Пути
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -21,14 +20,12 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
 
-# Инициализация базы
 if not os.path.exists(DB_PATH):
     with open(DB_PATH, "w") as f:
         json.dump({"users": {}}, f)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# Конфиг для TON
 TON_WALLET = "UQDpW4gtsT9Y77oze2el7fpJ-9OFPtvgSLmZZ6a57gOgL4vZ"
 TOKEN_CONTRACT = "EQA25M3v5zYC6-f8uyjFf1QPaZaNSS7WOJggo14DWsYiXmZc"
 EXCHANGE_RATE = 1  # 1 очко = 1 Ubuntu
@@ -39,7 +36,6 @@ async def favicon():
 
 @app.post("/earn/{wallet}/{score}")
 async def earn(wallet: str, score: int):
-    """Добавление очков для конкретного пользователя"""
     with open(DB_PATH, "r") as f:
         db = json.load(f)
 
@@ -48,22 +44,19 @@ async def earn(wallet: str, score: int):
 
     user = db["users"].get(wallet, {"tokens": 0, "best": 0})
     user["tokens"] += 1
+    new_record = False
     if score > user.get("best", 0):
         user["best"] = score
+        new_record = True
 
     db["users"][wallet] = user
-
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    return user
+    return {"tokens": user["tokens"], "best": user["best"], "new_record": new_record}
 
 @app.post("/exchange")
 async def exchange(request: Request):
-    """
-    Обмен очков на реальные Ubuntu для конкретного кошелька
-    1 очко = 1 Ubuntu
-    """
     data = await request.json()
     wallet = data.get("wallet")
 
@@ -77,14 +70,13 @@ async def exchange(request: Request):
     if not user or user["tokens"] < 1:
         return JSONResponse({"error": "not enough tokens"}, status_code=400)
 
-    # Количество Ubuntu = количество очков
     amount_to_send = user["tokens"]
 
     # Заглушка для реального перевода через TON API
     success = True
 
     if success:
-        user["tokens"] = 0  # после обмена обнуляем очки
+        user["tokens"] = 0
         db["users"][wallet] = user
         with open(DB_PATH, "w") as f:
             json.dump(db, f)
@@ -95,7 +87,8 @@ async def exchange(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
-<!DOCTYPE html><html><head><meta charset="UTF-8">
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <script src="telegram.org"></script>
 <style>
@@ -118,6 +111,7 @@ window.onresize=res; res();
 
 let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
 let pipes=[]; let frame=0; let dead=false;
+let highlightFrames = 0; // для эффекта рекорда
 
 const bI=new Image(); bI.src='/static/bird.png';
 const pI=new Image(); pI.src='/static/pipe.png';
@@ -152,13 +146,26 @@ function draw(){
                 fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(data=>{
                     document.getElementById('t').innerText=data.tokens;
                     document.getElementById('b').innerText=data.best;
+                    if(data.new_record){
+                        highlightFrames = 60; // эффект на 60 кадров
+                    }
                 });
             }
         }
     });
+
+    // Эффект рекорда — подсветка жёлтым
+    if(highlightFrames > 0){
+        ctx.fillStyle = "yellow";
+        ctx.font = "bold 28px sans-serif";
+        ctx.fillText("РЕКОРД: " + document.getElementById('b').innerText, 20, 50);
+        highlightFrames--;
+    }
+
     if(bird.y>cvs.height+50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; }
     requestAnimationFrame(draw);
 }
+
 window.onmousedown=()=>{ if(!dead) bird.v=-8; };
 window.ontouchstart=()=>{ if(!dead) bird.v=-8; };
 draw();
