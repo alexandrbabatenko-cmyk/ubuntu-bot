@@ -21,7 +21,6 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 if not os.path.exists(STATIC_DIR):
     os.makedirs(STATIC_DIR)
 
-# Если БД не существует, создаем
 if not os.path.exists(DB_PATH):
     with open(DB_PATH, "w") as f:
         json.dump({"users": {}}, f)
@@ -72,10 +71,9 @@ async def exchange(request: Request):
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    # Здесь можно добавить реальную отправку через TON API
     return {"sent": amount, "tokens": 0}
 
-# Игровая страница (HTML/JS) без изменений логики
+# Игровая страница (HTML/JS) с исправленными верхними трубами
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -121,23 +119,24 @@ function draw(){
     if(!dead) frame++;
     if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
 
-    pipes.forEach((p,i)=>{
+    pipes.forEach((p)=>{
         if(!dead) p.x -= 4.5;
 
+        // Верхняя труба - отражаем по вертикали
         if(pI.complete && pI.width > 0){
-            // Верхняя труба (перевёрнутая)
             ctx.save();
             ctx.translate(p.x, p.t);
             ctx.scale(1, -1);
             ctx.drawImage(pI, 0, 0, 80, p.t);
             ctx.restore();
 
-            // Нижняя труба
-            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height - p.t - 190);
+            // Нижняя труба - обычная
+            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
         } else {
+            // fallback зеленые столбики
             ctx.fillStyle = "green";
             ctx.fillRect(p.x, 0, 80, p.t);
-            ctx.fillRect(p.x, p.t + 190, 80, cvs.height - p.t - 190);
+            ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
         }
 
         if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
