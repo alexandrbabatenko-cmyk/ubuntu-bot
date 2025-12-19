@@ -111,7 +111,7 @@ window.onresize=res; res();
 
 let bird={x:80, y:200, w:50, h:50, v:0, g:0.45, score:0};
 let pipes=[]; let frame=0; let dead=false;
-let highlightFrames = 0; // для эффекта рекорда
+let highlightFrames = 0;
 
 const bI=new Image(); bI.src='/static/bird.png';
 const pI=new Image(); pI.src='/static/pipe.png';
@@ -147,14 +147,13 @@ function draw(){
                     document.getElementById('t').innerText=data.tokens;
                     document.getElementById('b').innerText=data.best;
                     if(data.new_record){
-                        highlightFrames = 60; // эффект на 60 кадров
+                        highlightFrames = 60;
                     }
                 });
             }
         }
     });
 
-    // Эффект рекорда — подсветка жёлтым
     if(highlightFrames > 0){
         ctx.fillStyle = "yellow";
         ctx.font = "bold 28px sans-serif";
@@ -170,7 +169,6 @@ window.onmousedown=()=>{ if(!dead) bird.v=-8; };
 window.ontouchstart=()=>{ if(!dead) bird.v=-8; };
 draw();
 
-// Кнопка обмена
 document.getElementById('exchangeBtn').onclick = async () => {
     let wallet = localStorage.getItem('wallet');
     if(!wallet){
@@ -195,5 +193,5 @@ document.getElementById('exchangeBtn').onclick = async () => {
 """
 
 if __name__=="__main__":
-    port=int(os.environ.get("PORT",8000))
+    port=int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
