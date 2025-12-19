@@ -44,10 +44,8 @@ async def earn(wallet: str, score: int):
 
     user = db["users"].get(wallet, {"tokens": 0, "best": 0})
     user["tokens"] += 1
-
     if score > user.get("best", 0):
         user["best"] = score
-
     db["users"][wallet] = user
 
     with open(DB_PATH, "w") as f:
@@ -60,7 +58,6 @@ async def earn(wallet: str, score: int):
 async def exchange(request: Request):
     data = await request.json()
     wallet = data.get("wallet")
-
     if not wallet:
         return JSONResponse({"error": "wallet missing"}, status_code=400)
 
@@ -89,7 +86,7 @@ async def exchange(request: Request):
         "tokens": user["tokens"]
     }
 
-# Игровая страница с интеграцией Telegram кошелька
+# Игровая страница с исправленной логикой начисления
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -110,12 +107,12 @@ const tg = window.Telegram ? window.Telegram.WebApp : null;
 if(tg){ 
     tg.expand(); 
     tg.ready();
-    // Telegram user id используем как wallet
     const tgWallet = tg.initDataUnsafe?.user?.id;
     if(tgWallet) localStorage.setItem("wallet", tgWallet);
 }
 
-const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
+const cvs=document.getElementById('c'); 
+const ctx=cvs.getContext('2d');
 function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
 window.onresize=res; res();
 
@@ -126,12 +123,15 @@ const bI=new Image(); bI.src='/static/bird.png';
 const pI=new Image(); pI.src='/static/pipe.png';
 const bg=new Image(); bg.src='/static/background.png';
 
+function addPipe(){
+    pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, passed:false});
+}
+
 function draw(){
     ctx.fillStyle = "#4ec0ca";
-    ctx.fillRect(0, 0, cvs.width, cvs.height);
-    if(bg.complete) ctx.drawImage(bg, 0, 0, cvs.width, cvs.height);
+    ctx.fillRect(0,0,cvs.width,cvs.height);
+    if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
 
-    // Физика птицы
     bird.v += bird.g;
     bird.y += bird.v;
     bird.v *= 0.98;
@@ -144,31 +144,34 @@ function draw(){
     ctx.translate(bird.x, bird.y);
     ctx.rotate((bird.angle + wingOffset) * Math.PI / 180);
     if(bI.complete && bI.width > 0) ctx.drawImage(bI, -25, -25, 50, 50);
-    else { ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50); }
+    else ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50);
     ctx.restore();
 
     if(!dead) frame++;
-    if(!dead && frame % 100 === 0) pipes.push({x:cvs.width, t:Math.random()*(cvs.height-350)+50, p:false});
+    if(!dead && frame % 100 === 0) addPipe();
 
-    pipes.forEach((p,i)=>{
+    pipes.forEach(p=>{
         if(!dead) p.x -= 4.5;
         if(pI.complete && pI.width > 0){
             ctx.save();
             ctx.translate(p.x + 40, p.t);
-            ctx.scale(1, -1);
-            ctx.drawImage(pI, -40, 0, 80, p.t);
+            ctx.scale(1,-1);
+            ctx.drawImage(pI,-40,0,80,p.t);
             ctx.restore();
-            ctx.drawImage(pI, p.x, p.t + 190, 80, cvs.height);
+            ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
         } else {
-            ctx.fillStyle = "green";
-            ctx.fillRect(p.x, 0, 80, p.t);
-            ctx.fillRect(p.x, p.t + 190, 80, cvs.height);
+            ctx.fillStyle="green";
+            ctx.fillRect(p.x,0,80,p.t);
+            ctx.fillRect(p.x,p.t+190,80,cvs.height);
         }
 
+        // Столкновение
         if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
 
-        if(!dead && !p.p && p.x < bird.x){
-            p.p = true; bird.score++;
+        // Начисление токенов 1 раз за трубу
+        if(!p.passed && p.x+80 < bird.x){
+            p.passed = true;
+            bird.score++;
             const wallet = localStorage.getItem('wallet');
             if(wallet){
                 fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'})
@@ -179,6 +182,7 @@ function draw(){
     });
 
     if(bird.y > cvs.height + 50){ bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0; bird.wingPhase=0; }
+
     requestAnimationFrame(draw);
 }
 
