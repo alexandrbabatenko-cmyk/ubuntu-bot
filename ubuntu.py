@@ -31,7 +31,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # Конфиг для TON
 TON_WALLET = "UQDpW4gtsT9Y77oze2el7fpJ-9OFPtvgSLmZZ6a57gOgL4vZ"
 TOKEN_CONTRACT = "EQA25M3v5zYC6-f8uyjFf1QPaZaNSS7WOJggo14DWsYiXmZc"
-EXCHANGE_RATE = 10  # 10 очков = 1 токен
+EXCHANGE_RATE = 1  # 1 очко = 1 Ubuntu
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
@@ -62,7 +62,7 @@ async def earn(wallet: str, score: int):
 async def exchange(request: Request):
     """
     Обмен очков на реальные Ubuntu для конкретного кошелька
-    10 очков = 1 токен
+    1 очко = 1 Ubuntu
     """
     data = await request.json()
     wallet = data.get("wallet")
@@ -74,22 +74,21 @@ async def exchange(request: Request):
         db = json.load(f)
 
     user = db["users"].get(wallet)
-    if not user or user["tokens"] < 10:
-        return JSONResponse({"error": "not enough tokens (min 10 required)"}, status_code=400)
+    if not user or user["tokens"] < 1:
+        return JSONResponse({"error": "not enough tokens"}, status_code=400)
 
-    # Переводим очки в токены
-    amount_to_send = user["tokens"] // EXCHANGE_RATE
-    remaining_tokens = user["tokens"] % EXCHANGE_RATE
+    # Количество Ubuntu = количество очков
+    amount_to_send = user["tokens"]
 
     # Заглушка для реального перевода через TON API
     success = True
 
     if success:
-        user["tokens"] = remaining_tokens  # оставляем остаток очков
+        user["tokens"] = 0  # после обмена обнуляем очки
         db["users"][wallet] = user
         with open(DB_PATH, "w") as f:
             json.dump(db, f)
-        return {"sent": amount_to_send, "tokens": remaining_tokens}
+        return {"sent": amount_to_send, "tokens": 0}
     else:
         return JSONResponse({"error": "transaction failed"}, status_code=500)
 
@@ -189,5 +188,5 @@ document.getElementById('exchangeBtn').onclick = async () => {
 """
 
 if __name__=="__main__":
-    port=int(os.environ.get("PORT",8000"))
+    port=int(os.environ.get("PORT",8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
