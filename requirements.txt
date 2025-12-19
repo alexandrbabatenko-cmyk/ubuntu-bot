@@ -1,4 +1,5 @@
 fastapi
 uvicorn
-pip install tonsdk
+tonsdk
+
 
