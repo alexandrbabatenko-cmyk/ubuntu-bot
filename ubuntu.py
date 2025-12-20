@@ -11,19 +11,24 @@ TON_MNEMONIC = os.getenv("TON_MNEMONIC")  # 24 слова
 
 MIN_EXCHANGE = 10000  # минимальный порог вывода
 
-# Проверка ENV при старте
+# Проверка ENV при старте (логируем, но не падаем)
 if not HOT_WALLET_ADDRESS or not TOKEN_CONTRACT_ADDRESS or not TON_MNEMONIC:
-    raise RuntimeError(
-        "ENV переменные HOT_WALLET_ADDRESS, JETTON_MASTER и TON_MNEMONIC должны быть заданы!"
-    )
+    print("[WARNING] Некоторые ENV переменные не заданы. Транзакции не будут работать.")
 
-# 🔹 Генерация ключа из 24 слов (TON SDK)
+# 🔹 Генерация ключа из 24 слов (совместимый метод Ton SDK)
+key_pair = None
 try:
+    from tonclient.client import TonClient
     from tonclient.types import KeyPair
-    mnemonic_words = TON_MNEMONIC.strip().split()
-    key_pair = KeyPair.from_mnemonic(mnemonic_words)
+
+    if TON_MNEMONIC:
+        mnemonic_words = TON_MNEMONIC.strip().split()
+        client = TonClient(config={"network": {"server_address": "main.ton.dev"}})
+        key_data = client.crypto.mnemonic_restore(mnemonic_words)
+        key_pair = KeyPair(public=key_data['public'], secret=key_data['secret'])
+        print("[INFO] TON KeyPair успешно восстановлен из 24 слов")
 except Exception as e:
-    raise RuntimeError(f"Ошибка генерации ключа из TON_MNEMONIC: {e}")
+    print(f"[ERROR] Ошибка генерации KeyPair: {e}")
 
 # FastAPI
 app = FastAPI()
@@ -76,7 +81,7 @@ async def earn(wallet: str, score: int):
 # 🔹 Отправка UBUNTU через TonCenter mainnet
 def send_ubuntu(from_address, key: KeyPair, to_address, amount):
     if not from_address or not key or not to_address:
-        print("[ERROR] ENV пустые или некорректные. Транзакция не отправлена.")
+        print("[ERROR] ENV пустые или ключ недоступен. Транзакция не отправлена.")
         return False
 
     url = "https://toncenter.com/api/v2/sendTransaction"
@@ -121,7 +126,6 @@ async def exchange(request: Request):
 
     send_amount = (tokens // MIN_EXCHANGE) * MIN_EXCHANGE
 
-    # 🔹 Атомарная логика: сначала отправка, потом уменьшение токенов
     success = send_ubuntu(HOT_WALLET_ADDRESS, key_pair, wallet, send_amount)
     if success:
         user["tokens"] -= send_amount
@@ -136,7 +140,7 @@ async def exchange(request: Request):
 
     return {"sent": send_amount, "tokens": user["tokens"]}
 
-# 🔹 Игровая страница с полной физикой и графикой (не тронута)
+# 🔹 Игровая страница с полной физикой и графикой (полностью сохранена)
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
