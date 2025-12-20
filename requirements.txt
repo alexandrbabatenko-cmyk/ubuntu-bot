@@ -1,7 +1,9 @@
-fastapi==0.111.1
-uvicorn[standard]==0.25.0
-requests==2.32.0
-setuptools>=59.0.0
+fastapi
+uvicorn[standard]
+requests
+tonsdk
+setuptools
 wheel
+
 
 
