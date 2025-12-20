@@ -1,7 +1,7 @@
+git+https://github.com/toncenter/ton-sdk-python.git@main#egg=tonsdk
 fastapi
-uvicorn
+uvicorn[standard]
 requests
-tonsdk
 setuptools
 wheel
 
