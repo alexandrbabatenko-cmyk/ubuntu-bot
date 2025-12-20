@@ -2,12 +2,12 @@ from fastapi import FastAPI, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os
-import requests
+import uvicorn, json, os, requests
 
-# 🔐 Настройки горячего кошелька
-HOT_WALLET_ADDRESS = "UQDpW4gtsT9Y77oze2el7fpJ-9OFPtvgSLmZZ6a57gOgL4vZ"
-HOT_WALLET_KEY = "6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13"
+# 🔐 Настройки через ENV
+HOT_WALLET_ADDRESS = os.getenv("HOT_WALLET_ADDRESS")
+HOT_WALLET_KEY = os.getenv("HOT_WALLET_KEY")
+TOKEN_CONTRACT_ADDRESS = os.getenv("TOKEN_CONTRACT_ADDRESS")  # Адрес UBUNTU токена
 
 MIN_EXCHANGE = 10000  # минимальный порог вывода
 
@@ -59,7 +59,7 @@ async def earn(wallet: str, score: int):
         json.dump(db, f)
     return user
 
-# 🔹 Функция отправки UBUNTU с горячего кошелька через TonCenter mainnet
+# 🔹 Отправка UBUNTU через TonCenter mainnet
 def send_ubuntu(from_address, key, to_address, amount):
     url = "https://toncenter.com/api/v2/sendTransaction"
     payload = {
@@ -107,12 +107,12 @@ async def exchange(request: Request):
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
 
-    # Отправляем UBUNTU с горячего кошелька на кошелек игрока
+    # 🔹 Отправка через TonCenter mainnet
     send_ubuntu(HOT_WALLET_ADDRESS, HOT_WALLET_KEY, wallet, send_amount)
 
     return {"sent": send_amount, "tokens": user["tokens"]}
 
-# Игровая страница (физика и графика полностью сохранены)
+# 🔹 Игровая страница с полной физикой и графикой
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -209,3 +209,4 @@ document.getElementById('exchangeBtn').onclick = async () => {
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
