@@ -1,7 +1,6 @@
 fastapi
 uvicorn[standard]
 requests
-tonsdk
 setuptools
 wheel
 
