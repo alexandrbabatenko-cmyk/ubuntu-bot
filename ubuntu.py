@@ -14,7 +14,7 @@ HOT_WALLET_KEY = os.getenv(
     "6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13"
 )
 
-MIN_EXCHANGE = 10  # уменьшено для теста
+MIN_EXCHANGE = 10  # минимальный порог для обмена (можно изменить)
 
 app = FastAPI()
 
@@ -51,8 +51,8 @@ async def earn(wallet: str, score: int):
         db = json.load(f)
 
     user = db["users"].get(wallet, {"tokens": 0, "best": 0})
-    user["tokens"] += 1
-    user["best"] = max(user.get("best", 0), score)
+    user["tokens"] += int(score)  # начисление токенов
+    user["best"] = max(user.get("best", 0), int(score))
 
     db["users"][wallet] = user
 
@@ -61,7 +61,7 @@ async def earn(wallet: str, score: int):
 
     return user
 
-# 💸 Отправка UBUNTU
+# 💸 Отправка UBUNTU через TonCenter
 def send_ubuntu(from_address, key, to_address, amount):
     url = "https://toncenter.com/api/v2/sendTransaction"
     payload = {
@@ -78,6 +78,7 @@ def send_ubuntu(from_address, key, to_address, amount):
         print("[ERROR]", e)
         return False
 
+# 🔄 Обмен токенов на UBUNTU
 @app.post("/exchange")
 async def exchange(request: Request):
     data = await request.json()
@@ -109,13 +110,12 @@ async def exchange(request: Request):
 
     return {"sent": send_amount, "tokens": user["tokens"]}
 
-# 🎮 ИГРА — ЦЕЛИКОМ, исправлены трубы и начисление
+# 🎮 ИГРА — Flappy Bird с начислением Ubuntu
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
 <!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
 #ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;display:flex;justify-content:center;align-items:center;gap:15px;}
@@ -128,6 +128,7 @@ canvas{display:block;width:100vw;height:100vh;}
 <script>
 const cvs=document.getElementById('c');
 const ctx=cvs.getContext('2d');
+const t = document.getElementById('t');
 
 function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
 window.onresize=res; res();
@@ -139,58 +140,69 @@ const pI=new Image(); pI.src='/static/pipe.png';
 const bg=new Image(); bg.src='/static/background.png';
 
 function draw(){
-ctx.fillStyle="#4ec0ca";
-ctx.fillRect(0,0,cvs.width,cvs.height);
-if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
+  ctx.fillStyle="#4ec0ca";
+  ctx.fillRect(0,0,cvs.width,cvs.height);
+  if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
 
-bird.v+=bird.g; bird.y+=bird.v; bird.v*=0.98;
-bird.angle+=(bird.v*6-bird.angle)*0.1;
-bird.wingPhase+=0.2;
+  bird.v+=bird.g; bird.y+=bird.v; bird.v*=0.98;
+  bird.angle+=(bird.v*6-bird.angle)*0.1;
+  bird.wingPhase+=0.2;
 
-ctx.save(); ctx.translate(bird.x,bird.y);
-ctx.rotate(bird.angle*Math.PI/180);
-if(bI.complete) ctx.drawImage(bI,-25,-25,50,50);
-ctx.restore();
+  ctx.save(); ctx.translate(bird.x,bird.y);
+  ctx.rotate(bird.angle*Math.PI/180);
+  if(bI.complete) ctx.drawImage(bI,-25,-25,50,50);
+  ctx.restore();
 
-if(!dead) frame++;
-if(!dead && frame%100===0)
-pipes.push({x:cvs.width,t:Math.random()*(cvs.height-250)+50,p:false});
+  if(!dead) frame++;
+  if(!dead && frame%100===0)
+    pipes.push({x:cvs.width,t:Math.random()*(cvs.height-250)+50,p:false});
 
-pipes.forEach(p=>{
-if(!dead) p.x-=4.5;
-if(pI.complete){
-  // Верхняя труба (смотрит вверх)
-  ctx.save(); ctx.translate(p.x+40,p.t); ctx.scale(1,-1); ctx.drawImage(pI,-40,0,80,p.t); ctx.restore();
-  // Нижняя труба
-  ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
-}else{
-  ctx.fillStyle="green"; ctx.fillRect(p.x,0,80,p.t); ctx.fillRect(p.x,p.t+190,80,cvs.height);
-}
+  pipes.forEach(p=>{
+    if(!dead) p.x-=4.5;
 
-if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
+    if(pI.complete){
+      // Верхняя труба (смотрит вниз)
+      ctx.save(); ctx.translate(p.x,p.t); ctx.scale(1,-1); ctx.drawImage(pI,0,0,80,p.t); ctx.restore();
+      // Нижняя труба
+      ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
+    }else{
+      ctx.fillStyle="green"; ctx.fillRect(p.x,0,80,p.t); ctx.fillRect(p.x,p.t+190,80,cvs.height);
+    }
 
-if(!dead && !p.p && p.x<bird.x){
-  p.p=true; bird.score++;
-  const w=localStorage.getItem('wallet');
-  if(w) fetch('/earn/'+w+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(d=>t.innerText=d.tokens);
-}});
+    // Столкновение
+    if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
 
-if(bird.y>cvs.height+50){bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0;}
+    // Проход трубы — начисляем 1 Ubuntu
+    if(!dead && !p.p && p.x+80<bird.x){
+      p.p=true; bird.score++;
+      const w = localStorage.getItem('wallet');
+      if(w){
+        fetch('/earn/'+w+'/1',{method:'POST'}).then(r=>r.json()).then(d=>t.innerText=d.tokens);
+      }
+    }
+  });
 
-requestAnimationFrame(draw);
+  if(bird.y>cvs.height+50){bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0;}
+
+  requestAnimationFrame(draw);
 }
 
 window.onmousedown=()=>{if(!dead) bird.v=-8;}
 window.ontouchstart=()=>{if(!dead) bird.v=-8;}
 draw();
 
-exchangeBtn.onclick=async()=>{
-let w=localStorage.getItem('wallet');
-if(!w){w=prompt("Введите кошелёк"); if(!w)return; localStorage.setItem('wallet',w);}
-const r=await fetch('/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wallet:w})});
-const d=await r.json();
-if(d.error) alert(d.error); else alert(`Отправлено ${d.sent} UBUNTU`);
-t.innerText=d.tokens||0;
+// Обмен Ubuntu
+document.getElementById('exchangeBtn').onclick=async()=>{
+  let w=localStorage.getItem('wallet');
+  if(!w){w=prompt("Введите кошелёк"); if(!w)return; localStorage.setItem('wallet',w);}
+  const r=await fetch('/exchange',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({wallet:w})
+  });
+  const d=await r.json();
+  if(d.error) alert(d.error); else alert(`Отправлено ${d.sent} UBUNTU`);
+  t.innerText=d.tokens||0;
 };
 </script>
 </body></html>
