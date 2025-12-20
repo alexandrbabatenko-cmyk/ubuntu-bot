@@ -2,6 +2,6 @@ fastapi==0.111.1
 uvicorn[standard]==0.25.0
 requests==2.32.0
 tonsdk==0.12.0
-setuptools
+setuptools>=59.0.0
 wheel
 
