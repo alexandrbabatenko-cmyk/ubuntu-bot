@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn, json, os, requests
 
-# 🔐 Горячий кошелёк (fallback, чтобы сервер НЕ ПАДАЛ)
+# 🔐 Горячий кошелёк
 HOT_WALLET_ADDRESS = os.getenv(
     "HOT_WALLET_ADDRESS",
     "UQDpW4gtsT9Y77oze2el7fpJ-9OFPtvgSLmZZ6a57gOgL4vZ"
@@ -14,7 +14,7 @@ HOT_WALLET_KEY = os.getenv(
     "6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13"
 )
 
-MIN_EXCHANGE = 10000
+MIN_EXCHANGE = 10  # уменьшено для теста
 
 app = FastAPI()
 
@@ -61,7 +61,7 @@ async def earn(wallet: str, score: int):
 
     return user
 
-# 💸 Отправка UBUNTU (как у тебя работало)
+# 💸 Отправка UBUNTU
 def send_ubuntu(from_address, key, to_address, amount):
     url = "https://toncenter.com/api/v2/sendTransaction"
     payload = {
@@ -109,7 +109,7 @@ async def exchange(request: Request):
 
     return {"sent": send_amount, "tokens": user["tokens"]}
 
-# 🎮 ИГРА — ЦЕЛИКОМ
+# 🎮 ИГРА — ЦЕЛИКОМ, исправлены трубы и начисление
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -126,9 +126,6 @@ canvas{display:block;width:100vw;height:100vh;}
 <div id="ui"><span id="t">0</span> Ubuntu <button id="exchangeBtn">Обменять</button></div>
 <canvas id="c"></canvas>
 <script>
-const tg = window.Telegram ? window.Telegram.WebApp : null;
-if(tg){ tg.expand(); tg.ready(); }
-
 const cvs=document.getElementById('c');
 const ctx=cvs.getContext('2d');
 
@@ -137,7 +134,6 @@ window.onresize=res; res();
 
 let bird={x:80,y:200,v:0,g:0.45,score:0,angle:0,wingPhase:0};
 let pipes=[]; let frame=0; let dead=false;
-
 const bI=new Image(); bI.src='/static/bird.png';
 const pI=new Image(); pI.src='/static/pipe.png';
 const bg=new Image(); bg.src='/static/background.png';
@@ -147,41 +143,40 @@ ctx.fillStyle="#4ec0ca";
 ctx.fillRect(0,0,cvs.width,cvs.height);
 if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
 
-bird.v+=bird.g;
-bird.y+=bird.v;
-bird.v*=0.98;
+bird.v+=bird.g; bird.y+=bird.v; bird.v*=0.98;
 bird.angle+=(bird.v*6-bird.angle)*0.1;
 bird.wingPhase+=0.2;
 
-ctx.save();
-ctx.translate(bird.x,bird.y);
+ctx.save(); ctx.translate(bird.x,bird.y);
 ctx.rotate(bird.angle*Math.PI/180);
 if(bI.complete) ctx.drawImage(bI,-25,-25,50,50);
-else {ctx.fillStyle="yellow";ctx.fillRect(-25,-25,50,50);}
 ctx.restore();
 
 if(!dead) frame++;
 if(!dead && frame%100===0)
-pipes.push({x:cvs.width,t:Math.random()*(cvs.height-350)+50,p:false});
+pipes.push({x:cvs.width,t:Math.random()*(cvs.height-250)+50,p:false});
 
 pipes.forEach(p=>{
 if(!dead) p.x-=4.5;
-ctx.drawImage(pI,p.x,0,80,p.t);
-ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
+if(pI.complete){
+  // Верхняя труба (смотрит вверх)
+  ctx.save(); ctx.translate(p.x+40,p.t); ctx.scale(1,-1); ctx.drawImage(pI,-40,0,80,p.t); ctx.restore();
+  // Нижняя труба
+  ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
+}else{
+  ctx.fillStyle="green"; ctx.fillRect(p.x,0,80,p.t); ctx.fillRect(p.x,p.t+190,80,cvs.height);
+}
 
-if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 &&
-(bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
+if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
 
 if(!dead && !p.p && p.x<bird.x){
-p.p=true; bird.score++;
-const w=localStorage.getItem('wallet');
-if(w) fetch('/earn/'+w+'/'+bird.score,{method:'POST'})
-.then(r=>r.json()).then(d=>t.innerText=d.tokens);
+  p.p=true; bird.score++;
+  const w=localStorage.getItem('wallet');
+  if(w) fetch('/earn/'+w+'/'+bird.score,{method:'POST'}).then(r=>r.json()).then(d=>t.innerText=d.tokens);
 }});
 
-if(bird.y>cvs.height+50){
-bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0;
-}
+if(bird.y>cvs.height+50){bird.y=200; bird.v=0; pipes=[]; frame=0; dead=false; bird.score=0;}
+
 requestAnimationFrame(draw);
 }
 
@@ -191,10 +186,10 @@ draw();
 
 exchangeBtn.onclick=async()=>{
 let w=localStorage.getItem('wallet');
-if(!w){w=prompt("Введите кошелёк");if(!w)return;localStorage.setItem('wallet',w);}
+if(!w){w=prompt("Введите кошелёк"); if(!w)return; localStorage.setItem('wallet',w);}
 const r=await fetch('/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wallet:w})});
 const d=await r.json();
-alert(d.error||`Отправлено ${d.sent} UBUNTU`);
+if(d.error) alert(d.error); else alert(`Отправлено ${d.sent} UBUNTU`);
 t.innerText=d.tokens||0;
 };
 </script>
