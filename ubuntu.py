@@ -5,9 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn, json, os, requests
 
 # 🔐 Настройки через ENV
-HOT_WALLET_ADDRESS = os.getenv("HOT_WALLET_ADDRESS")
-HOT_WALLET_KEY = os.getenv("HOT_WALLET_KEY")
-TOKEN_CONTRACT_ADDRESS = os.getenv("TOKEN_CONTRACT_ADDRESS")  # Адрес UBUNTU токена
+HOT_WALLET_ADDRESS = os.getenv("UQDpW4gtsT9Y77oze2el7fpJ-9OFPtvgSLmZZ6a57gOgL4vZ")
+HOT_WALLET_KEY = os.getenv("6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13")
+TOKEN_CONTRACT_ADDRESS = os.getenv("EQA25M3v5zYC6-f8uyjFf1QPaZaNSS7WOJggo14DWsYiXmZc")  # Адрес UBUNTU токена
 
 MIN_EXCHANGE = 10000  # минимальный порог вывода
 
@@ -209,3 +209,4 @@ document.getElementById('exchangeBtn').onclick = async () => {
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
