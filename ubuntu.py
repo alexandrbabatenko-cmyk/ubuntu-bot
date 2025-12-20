@@ -8,10 +8,8 @@ import uvicorn, json, os, requests
 HOT_WALLET_ADDRESS = os.getenv("HOT_WALLET_ADDRESS")
 TOKEN_CONTRACT_ADDRESS = os.getenv("JETTON_MASTER")
 TON_MNEMONIC = os.getenv("TON_MNEMONIC")  # 24 слова
-
 MIN_EXCHANGE = 10000  # минимальный порог вывода
 
-# Проверка ENV при старте
 if not HOT_WALLET_ADDRESS or not TOKEN_CONTRACT_ADDRESS or not TON_MNEMONIC:
     raise RuntimeError(
         "ENV переменные HOT_WALLET_ADDRESS, JETTON_MASTER и TON_MNEMONIC должны быть заданы!"
@@ -19,14 +17,13 @@ if not HOT_WALLET_ADDRESS or not TOKEN_CONTRACT_ADDRESS or not TON_MNEMONIC:
 
 # 🔹 Генерация ключа из 24 слов через tonsdk
 try:
-    from tonsdk.crypto import mnemonic_to_keypair
+    from tonsdk.crypto.mnemonic import mnemonic_to_keypair
     key_pair = mnemonic_to_keypair(TON_MNEMONIC.strip())
 except Exception as e:
     raise RuntimeError(f"Ошибка генерации ключа из TON_MNEMONIC: {e}")
 
 # FastAPI
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -56,17 +53,14 @@ async def favicon():
 async def earn(wallet: str, score: int):
     if not wallet:
         return {"tokens": 0}
-
     with open(DB_PATH, "r") as f:
         db = json.load(f)
     if "users" not in db:
         db["users"] = {}
-
     user = db["users"].get(wallet, {"tokens": 0, "best": 0})
     user["tokens"] += 1
     if score > user.get("best", 0):
         user["best"] = score
-
     db["users"][wallet] = user
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
@@ -77,19 +71,17 @@ def send_ubuntu(from_address, keypair, to_address, amount):
     if not from_address or not keypair or not to_address:
         print("[ERROR] ENV пустые или некорректные. Транзакция не отправлена.")
         return False
-
     url = "https://toncenter.com/api/v2/sendTransaction"
     payload = {
         "from": from_address,
         "to": to_address,
         "amount": amount,
-        "secret": keypair.secret  # tonsdk keypair имеет поле secret
+        "secret": keypair.secret
     }
-
     try:
         resp = requests.post(url, json=payload, timeout=10)
         if resp.ok:
-            print(f"[MAINNET] Успешно отправлено {amount} UBUNTU с {from_address} на {to_address}")
+            print(f"[MAINNET] Отправлено {amount} UBUNTU с {from_address} на {to_address}")
             return True
         else:
             print(f"[ERROR] TonCenter ответил: {resp.text}")
@@ -105,22 +97,13 @@ async def exchange(request: Request):
     wallet = data.get("wallet")
     if not wallet:
         return JSONResponse({"error": "wallet missing"}, status_code=400)
-
     with open(DB_PATH, "r") as f:
         db = json.load(f)
-
     user = db["users"].get(wallet)
     tokens = user.get("tokens", 0) if user else 0
-
     if tokens < MIN_EXCHANGE:
-        return JSONResponse(
-            {"error": f"Минимум для вывода — {MIN_EXCHANGE} UBUNTU"},
-            status_code=400
-        )
-
+        return JSONResponse({"error": f"Минимум для вывода — {MIN_EXCHANGE} UBUNTU"}, status_code=400)
     send_amount = (tokens // MIN_EXCHANGE) * MIN_EXCHANGE
-
-    # 🔹 Атомарная логика: сначала отправка, потом уменьшение токенов
     success = send_ubuntu(HOT_WALLET_ADDRESS, key_pair, wallet, send_amount)
     if success:
         user["tokens"] -= send_amount
@@ -128,14 +111,10 @@ async def exchange(request: Request):
         with open(DB_PATH, "w") as f:
             json.dump(db, f)
     else:
-        return JSONResponse(
-            {"error": "Ошибка отправки UBUNTU. Попробуйте позже."},
-            status_code=500
-        )
-
+        return JSONResponse({"error": "Ошибка отправки UBUNTU. Попробуйте позже."}, status_code=500)
     return {"sent": send_amount, "tokens": user["tokens"]}
 
-# 🔹 Игровая страница с полной физикой и графикой (не тронута)
+# 🔹 Игровая страница с полной физикой и графикой
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
