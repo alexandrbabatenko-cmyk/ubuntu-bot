@@ -1,7 +1,7 @@
+git+https://github.com/toncenter/ton-sdk-python.git@main#egg=tonsdk
 fastapi==0.111.1
 uvicorn==0.25.0
 requests==2.32.0
-tonsdk==0.12.0
 setuptools>=59.0.0
 wheel
 
