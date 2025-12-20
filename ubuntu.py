@@ -4,12 +4,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn, json, os, requests
 
-# 🔐 Горячий кошелёк (ENV → fallback, чтобы сервер НИКОГДА не падал)
+# 🔐 Горячий кошелёк (fallback, чтобы сервер НЕ ПАДАЛ)
 HOT_WALLET_ADDRESS = os.getenv(
     "HOT_WALLET_ADDRESS",
     "UQDpW4gtsT9Y77oze2el7fpJ-9OFPtvgSLmZZ6a57gOgL4vZ"
 )
-
 HOT_WALLET_KEY = os.getenv(
     "HOT_WALLET_KEY",
     "6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13"
@@ -62,7 +61,7 @@ async def earn(wallet: str, score: int):
 
     return user
 
-# 🔹 Отправка UBUNTU (БЕЗ SDK, как у тебя работало)
+# 💸 Отправка UBUNTU (как у тебя работало)
 def send_ubuntu(from_address, key, to_address, amount):
     url = "https://toncenter.com/api/v2/sendTransaction"
     payload = {
@@ -79,7 +78,6 @@ def send_ubuntu(from_address, key, to_address, amount):
         print("[ERROR]", e)
         return False
 
-# 💸 Обмен
 @app.post("/exchange")
 async def exchange(request: Request):
     data = await request.json()
@@ -111,13 +109,13 @@ async def exchange(request: Request):
 
     return {"sent": send_amount, "tokens": user["tokens"]}
 
-# 🎮 ИГРА — ЦЕЛИКОМ, БЕЗ ИЗМЕНЕНИЙ
+# 🎮 ИГРА — ЦЕЛИКОМ
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
 <!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<script src="telegram.org"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
 #ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;display:flex;justify-content:center;align-items:center;gap:15px;}
@@ -131,11 +129,13 @@ canvas{display:block;width:100vw;height:100vh;}
 const tg = window.Telegram ? window.Telegram.WebApp : null;
 if(tg){ tg.expand(); tg.ready(); }
 
-const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d');
+const cvs=document.getElementById('c');
+const ctx=cvs.getContext('2d');
+
 function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
 window.onresize=res; res();
 
-let bird={x:80,y:200,w:50,h:50,v:0,g:0.45,score:0,angle:0,wingPhase:0};
+let bird={x:80,y:200,v:0,g:0.45,score:0,angle:0,wingPhase:0};
 let pipes=[]; let frame=0; let dead=false;
 
 const bI=new Image(); bI.src='/static/bird.png';
@@ -152,12 +152,12 @@ bird.y+=bird.v;
 bird.v*=0.98;
 bird.angle+=(bird.v*6-bird.angle)*0.1;
 bird.wingPhase+=0.2;
-let wingOffset=Math.sin(bird.wingPhase)*5;
 
 ctx.save();
 ctx.translate(bird.x,bird.y);
-ctx.rotate((bird.angle+wingOffset)*Math.PI/180);
+ctx.rotate(bird.angle*Math.PI/180);
 if(bI.complete) ctx.drawImage(bI,-25,-25,50,50);
+else {ctx.fillStyle="yellow";ctx.fillRect(-25,-25,50,50);}
 ctx.restore();
 
 if(!dead) frame++;
@@ -166,8 +166,7 @@ pipes.push({x:cvs.width,t:Math.random()*(cvs.height-350)+50,p:false});
 
 pipes.forEach(p=>{
 if(!dead) p.x-=4.5;
-ctx.save();ctx.translate(p.x+40,p.t);ctx.scale(1,-1);
-ctx.drawImage(pI,-40,0,80,p.t);ctx.restore();
+ctx.drawImage(pI,p.x,0,80,p.t);
 ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
 
 if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 &&
@@ -175,11 +174,9 @@ if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 &&
 
 if(!dead && !p.p && p.x<bird.x){
 p.p=true; bird.score++;
-const wallet=localStorage.getItem('wallet');
-if(wallet){
-fetch('/earn/'+wallet+'/'+bird.score,{method:'POST'})
-.then(r=>r.json())
-.then(d=>document.getElementById('t').innerText=d.tokens);
+const w=localStorage.getItem('wallet');
+if(w) fetch('/earn/'+w+'/'+bird.score,{method:'POST'})
+.then(r=>r.json()).then(d=>t.innerText=d.tokens);
 }});
 
 if(bird.y>cvs.height+50){
@@ -192,21 +189,13 @@ window.onmousedown=()=>{if(!dead) bird.v=-8;}
 window.ontouchstart=()=>{if(!dead) bird.v=-8;}
 draw();
 
-document.getElementById('exchangeBtn').onclick=async()=>{
-let wallet=localStorage.getItem('wallet');
-if(!wallet){
-wallet=prompt("Введите кошелёк:");
-if(!wallet) return;
-localStorage.setItem('wallet',wallet);
-}
-const r=await fetch('/exchange',{
-method:'POST',
-headers:{'Content-Type':'application/json'},
-body:JSON.stringify({wallet})
-});
+exchangeBtn.onclick=async()=>{
+let w=localStorage.getItem('wallet');
+if(!w){w=prompt("Введите кошелёк");if(!w)return;localStorage.setItem('wallet',w);}
+const r=await fetch('/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wallet:w})});
 const d=await r.json();
-alert(d.error?d.error:`Отправлено ${d.sent} UBUNTU`);
-document.getElementById('t').innerText=d.tokens||0;
+alert(d.error||`Отправлено ${d.sent} UBUNTU`);
+t.innerText=d.tokens||0;
 };
 </script>
 </body></html>
