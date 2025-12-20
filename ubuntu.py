@@ -14,10 +14,9 @@ HOT_WALLET_KEY = os.getenv(
     "6cefc5f49a86d1dc85152a5cf3b2b743a50e06b6fa9f235c1619ca4a32117b13"
 )
 
-MIN_EXCHANGE = 10  # минимальный порог для обмена (можно изменить)
+MIN_EXCHANGE = 10
 
 app = FastAPI()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,7 +27,6 @@ app.add_middleware(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-
 os.makedirs(STATIC_DIR, exist_ok=True)
 
 if not os.path.exists(DB_PATH):
@@ -41,35 +39,24 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 async def favicon():
     return Response(status_code=204)
 
-# 🎯 Начисление токенов
-@app.post("/earn/{wallet}/{score}")
-async def earn(wallet: str, score: int):
+# Начисление токенов
+@app.post("/earn/{wallet}/{amount}")
+async def earn(wallet: str, amount: int):
     if not wallet:
         return {"tokens": 0}
-
     with open(DB_PATH, "r") as f:
         db = json.load(f)
-
-    user = db["users"].get(wallet, {"tokens": 0, "best": 0})
-    user["tokens"] += int(score)  # начисление токенов
-    user["best"] = max(user.get("best", 0), int(score))
-
+    user = db["users"].get(wallet, {"tokens": 0})
+    user["tokens"] += int(amount)
     db["users"][wallet] = user
-
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
-
     return user
 
-# 💸 Отправка UBUNTU через TonCenter
+# Отправка UBUNTU
 def send_ubuntu(from_address, key, to_address, amount):
     url = "https://toncenter.com/api/v2/sendTransaction"
-    payload = {
-        "from": from_address,
-        "to": to_address,
-        "amount": amount,
-        "secret": key
-    }
+    payload = {"from": from_address, "to": to_address, "amount": amount, "secret": key}
     try:
         r = requests.post(url, json=payload, timeout=10)
         print("[TONCENTER]", r.text)
@@ -78,44 +65,33 @@ def send_ubuntu(from_address, key, to_address, amount):
         print("[ERROR]", e)
         return False
 
-# 🔄 Обмен токенов на UBUNTU
+# Обмен токенов на UBUNTU
 @app.post("/exchange")
 async def exchange(request: Request):
     data = await request.json()
     wallet = data.get("wallet")
-
     if not wallet:
         return JSONResponse({"error": "wallet missing"}, status_code=400)
-
     with open(DB_PATH, "r") as f:
         db = json.load(f)
-
     user = db["users"].get(wallet)
     tokens = user["tokens"] if user else 0
-
     if tokens < MIN_EXCHANGE:
-        return JSONResponse(
-            {"error": f"Минимум для вывода — {MIN_EXCHANGE} UBUNTU"},
-            status_code=400
-        )
-
+        return JSONResponse({"error": f"Минимум для вывода — {MIN_EXCHANGE} UBUNTU"}, status_code=400)
     send_amount = (tokens // MIN_EXCHANGE) * MIN_EXCHANGE
     user["tokens"] -= send_amount
     db["users"][wallet] = user
-
     with open(DB_PATH, "w") as f:
         json.dump(db, f)
-
     send_ubuntu(HOT_WALLET_ADDRESS, HOT_WALLET_KEY, wallet, send_amount)
-
     return {"sent": send_amount, "tokens": user["tokens"]}
 
-# 🎮 ИГРА — Flappy Bird с начислением Ubuntu
+# Игровая страница
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
 <!DOCTYPE html><html><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 body{margin:0;overflow:hidden;background:#4ec0ca;font-family:sans-serif;}
 #ui{position:absolute;top:20px;width:100%;text-align:center;color:white;font-size:24px;z-index:10;text-shadow:2px 2px 0 #000;font-weight:bold;display:flex;justify-content:center;align-items:center;gap:15px;}
@@ -126,59 +102,48 @@ canvas{display:block;width:100vw;height:100vh;}
 <div id="ui"><span id="t">0</span> Ubuntu <button id="exchangeBtn">Обменять</button></div>
 <canvas id="c"></canvas>
 <script>
-const cvs=document.getElementById('c');
-const ctx=cvs.getContext('2d');
-const t = document.getElementById('t');
-
+const cvs=document.getElementById('c'), ctx=cvs.getContext('2d'), t=document.getElementById('t');
 function res(){cvs.width=window.innerWidth; cvs.height=window.innerHeight;}
 window.onresize=res; res();
 
 let bird={x:80,y:200,v:0,g:0.45,score:0,angle:0,wingPhase:0};
-let pipes=[]; let frame=0; let dead=false;
+let pipes=[], frame=0, dead=false;
 const bI=new Image(); bI.src='/static/bird.png';
 const pI=new Image(); pI.src='/static/pipe.png';
 const bg=new Image(); bg.src='/static/background.png';
 
 function draw(){
-  ctx.fillStyle="#4ec0ca";
-  ctx.fillRect(0,0,cvs.width,cvs.height);
+  ctx.fillStyle="#4ec0ca"; ctx.fillRect(0,0,cvs.width,cvs.height);
   if(bg.complete) ctx.drawImage(bg,0,0,cvs.width,cvs.height);
 
   bird.v+=bird.g; bird.y+=bird.v; bird.v*=0.98;
   bird.angle+=(bird.v*6-bird.angle)*0.1;
   bird.wingPhase+=0.2;
 
-  ctx.save(); ctx.translate(bird.x,bird.y);
-  ctx.rotate(bird.angle*Math.PI/180);
-  if(bI.complete) ctx.drawImage(bI,-25,-25,50,50);
+  ctx.save(); ctx.translate(bird.x,bird.y); ctx.rotate(bird.angle*Math.PI/180);
+  if(bI.complete) ctx.drawImage(bI,-25,-25,50,50); else {ctx.fillStyle="yellow"; ctx.fillRect(-25,-25,50,50);}
   ctx.restore();
 
   if(!dead) frame++;
-  if(!dead && frame%100===0)
-    pipes.push({x:cvs.width,t:Math.random()*(cvs.height-250)+50,p:false});
+  if(!dead && frame%100===0) pipes.push({x:cvs.width,t:Math.random()*(cvs.height-250)+50,p:false});
 
   pipes.forEach(p=>{
     if(!dead) p.x-=4.5;
-
     if(pI.complete){
-      // Верхняя труба (смотрит вниз)
-      ctx.save(); ctx.translate(p.x,p.t); ctx.scale(1,-1); ctx.drawImage(pI,0,0,80,p.t); ctx.restore();
+      // Верхняя труба
+      ctx.save(); ctx.translate(p.x, p.t); ctx.scale(1,-1); ctx.drawImage(pI,0,0,80,p.t); ctx.restore();
       // Нижняя труба
       ctx.drawImage(pI,p.x,p.t+190,80,cvs.height);
-    }else{
-      ctx.fillStyle="green"; ctx.fillRect(p.x,0,80,p.t); ctx.fillRect(p.x,p.t+190,80,cvs.height);
-    }
+    }else{ctx.fillStyle="green"; ctx.fillRect(p.x,0,80,p.t); ctx.fillRect(p.x,p.t+190,80,cvs.height);}
 
     // Столкновение
     if(!dead && bird.x+20>p.x && bird.x-20<p.x+80 && (bird.y-20<p.t || bird.y+20>p.t+190)) dead=true;
 
-    // Проход трубы — начисляем 1 Ubuntu
-    if(!dead && !p.p && p.x+80<bird.x){
+    // Начисление Ubuntu при прохождении трубы
+    if(!dead && !p.p && bird.x > p.x + 80){
       p.p=true; bird.score++;
       const w = localStorage.getItem('wallet');
-      if(w){
-        fetch('/earn/'+w+'/1',{method:'POST'}).then(r=>r.json()).then(d=>t.innerText=d.tokens);
-      }
+      if(w) fetch('/earn/'+w+'/1',{method:'POST'}).then(r=>r.json()).then(d=>t.innerText=d.tokens);
     }
   });
 
@@ -194,12 +159,8 @@ draw();
 // Обмен Ubuntu
 document.getElementById('exchangeBtn').onclick=async()=>{
   let w=localStorage.getItem('wallet');
-  if(!w){w=prompt("Введите кошелёк"); if(!w)return; localStorage.setItem('wallet',w);}
-  const r=await fetch('/exchange',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({wallet:w})
-  });
+  if(!w){ w=prompt("Введите кошелек"); if(!w)return; localStorage.setItem('wallet',w);}
+  const r=await fetch('/exchange',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wallet:w})});
   const d=await r.json();
   if(d.error) alert(d.error); else alert(`Отправлено ${d.sent} UBUNTU`);
   t.innerText=d.tokens||0;
