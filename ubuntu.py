@@ -4,13 +4,28 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn, json, os, requests
 
-# 🔐 Настройки через ENV
+# 🔐 ENV
 HOT_WALLET_ADDRESS = os.getenv("HOT_WALLET_ADDRESS")
-HOT_WALLET_KEY = os.getenv("HOT_WALLET_KEY")
-TOKEN_CONTRACT_ADDRESS = os.getenv("TOKEN_CONTRACT_ADDRESS")  # Адрес UBUNTU токена
+TOKEN_CONTRACT_ADDRESS = os.getenv("JETTON_MASTER")
+TON_MNEMONIC = os.getenv("TON_MNEMONIC")  # 24 слова
 
 MIN_EXCHANGE = 10000  # минимальный порог вывода
 
+# Проверка ENV при старте
+if not HOT_WALLET_ADDRESS or not TOKEN_CONTRACT_ADDRESS or not TON_MNEMONIC:
+    raise RuntimeError(
+        "ENV переменные HOT_WALLET_ADDRESS, JETTON_MASTER и TON_MNEMONIC должны быть заданы!"
+    )
+
+# 🔹 Генерация ключа из 24 слов (TON SDK)
+try:
+    from tonclient.types import KeyPair
+    mnemonic_words = TON_MNEMONIC.strip().split()
+    key_pair = KeyPair.from_mnemonic(mnemonic_words)
+except Exception as e:
+    raise RuntimeError(f"Ошибка генерации ключа из TON_MNEMONIC: {e}")
+
+# FastAPI
 app = FastAPI()
 
 app.add_middleware(
@@ -20,7 +35,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Пути
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "db.json")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -60,18 +74,23 @@ async def earn(wallet: str, score: int):
     return user
 
 # 🔹 Отправка UBUNTU через TonCenter mainnet
-def send_ubuntu(from_address, key, to_address, amount):
+def send_ubuntu(from_address, key: KeyPair, to_address, amount):
+    if not from_address or not key or not to_address:
+        print("[ERROR] ENV пустые или некорректные. Транзакция не отправлена.")
+        return False
+
     url = "https://toncenter.com/api/v2/sendTransaction"
     payload = {
         "from": from_address,
         "to": to_address,
         "amount": amount,
-        "secret": key
+        "secret": key.secret
     }
+
     try:
         resp = requests.post(url, json=payload, timeout=10)
         if resp.ok:
-            print(f"[MAINNET] Отправлено {amount} UBUNTU с {from_address} на {to_address}")
+            print(f"[MAINNET] Успешно отправлено {amount} UBUNTU с {from_address} на {to_address}")
             return True
         else:
             print(f"[ERROR] TonCenter ответил: {resp.text}")
@@ -101,18 +120,23 @@ async def exchange(request: Request):
         )
 
     send_amount = (tokens // MIN_EXCHANGE) * MIN_EXCHANGE
-    user["tokens"] -= send_amount
-    db["users"][wallet] = user
 
-    with open(DB_PATH, "w") as f:
-        json.dump(db, f)
-
-    # 🔹 Отправка через TonCenter mainnet
-    send_ubuntu(HOT_WALLET_ADDRESS, HOT_WALLET_KEY, wallet, send_amount)
+    # 🔹 Атомарная логика: сначала отправка, потом уменьшение токенов
+    success = send_ubuntu(HOT_WALLET_ADDRESS, key_pair, wallet, send_amount)
+    if success:
+        user["tokens"] -= send_amount
+        db["users"][wallet] = user
+        with open(DB_PATH, "w") as f:
+            json.dump(db, f)
+    else:
+        return JSONResponse(
+            {"error": "Ошибка отправки UBUNTU. Попробуйте позже."},
+            status_code=500
+        )
 
     return {"sent": send_amount, "tokens": user["tokens"]}
 
-# 🔹 Игровая страница с полной физикой и графикой
+# 🔹 Игровая страница с полной физикой и графикой (не тронута)
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
@@ -209,4 +233,3 @@ document.getElementById('exchangeBtn').onclick = async () => {
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
