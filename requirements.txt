@@ -1,10 +1,7 @@
 fastapi==0.111.1
-uvicorn==0.25.0
+uvicorn[standard]==0.25.0
 requests==2.32.0
-ton
-tonsdk
-
-
+git+https://github.com/toncenter/ton-sdk-python.git@main#egg=tonsdk
 
 
 
